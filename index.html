@@ -1,0 +1,2404 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transporte de pasajeros en Pekín · Dinámica de Sistemas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #1a1a26;
+      --surface: #2e2e42;
+      --text: #fafafa;
+      --muted: #b4b4c4;
+      --base: 1.18rem;
+      --accent: #a78bfa;
+      --accent-2: #fb7185;
+      --accent-3: #38bdf8;
+      --accent-4: #34d399;
+      --gold: #fbbf24;
+      --rail-a: #38bdf8;
+      --rail-b: #a78bfa;
+      --rail-c: #34d399;
+      --rail-d: #fb923c;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #0a0a10;
+      font-family: "Instrument Sans", system-ui, sans-serif;
+      font-size: var(--base);
+      color: var(--text);
+    }
+
+    #stage {
+      position: fixed; inset: 0;
+      width: 100vw; height: 100vh; height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #deck-wrap {
+      position: relative;
+      width: 100%; height: 100%;
+      overflow: hidden;
+      perspective: 1400px;
+      transform-origin: center center;
+      transform: scale(var(--deck-fit, 1));
+      transition: transform .22s ease;
+      will-change: transform;
+    }
+    #deck { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; }
+
+    #transition-flash {
+      position: fixed; inset: 0; z-index: 80;
+      pointer-events: none; opacity: 0;
+      mix-blend-mode: screen;
+      transition: opacity .15s ease;
+    }
+    #transition-flash.on { opacity: 1; }
+    #deck-wrap.sweep::before {
+      content: "";
+      position: absolute; inset: 0; z-index: 60;
+      pointer-events: none;
+      background: linear-gradient(
+        108deg,
+        transparent 38%,
+        rgba(255,255,255,.12) 48%,
+        rgba(167,139,250,.25) 50%,
+        rgba(255,255,255,.12) 52%,
+        transparent 62%
+      );
+      animation: lightSweep .85s cubic-bezier(.22,1,.36,1) forwards;
+    }
+    @keyframes lightSweep {
+      from { transform: translateX(-120%) skewX(-12deg); opacity: 0; }
+      15% { opacity: 1; }
+      to { transform: translateX(120%) skewX(-12deg); opacity: 0; }
+    }
+
+    .slide {
+      position: absolute; inset: 0;
+      opacity: 0; visibility: hidden;
+      transform: translateX(10vw) scale(0.9) rotateY(-5deg);
+      filter: blur(14px) brightness(0.55) saturate(0.7);
+      transition: opacity .82s cubic-bezier(.22,1,.36,1),
+                  transform .82s cubic-bezier(.22,1,.36,1),
+                  filter .72s ease,
+                  visibility .82s;
+      overflow: hidden;
+      will-change: transform, opacity, filter;
+      transform-origin: center center;
+    }
+    .slide.active {
+      opacity: 1; visibility: visible;
+      transform: translateX(0) scale(1) rotateY(0) rotateZ(0);
+      filter: blur(0) brightness(1) saturate(1);
+      z-index: 2;
+    }
+
+    /* —— Transiciones variadas por diapositiva —— */
+    .slide.t-enter.t-glide:not(.active)    { transform: translateX(10vw) scale(0.9) rotateY(-5deg); filter: blur(14px) brightness(0.55); }
+    .slide.t-exit.t-glide                  { transform: translateX(-14vw) scale(0.86) rotateY(8deg); opacity: 0; filter: blur(18px) brightness(1.35) hue-rotate(25deg); }
+    .slide.t-enter.t-glide.rev:not(.active) { transform: translateX(-10vw) scale(0.9) rotateY(5deg); }
+    .slide.t-exit.t-glide.rev              { transform: translateX(14vw) scale(0.86) rotateY(-8deg); opacity: 0; filter: blur(18px) brightness(1.35) hue-rotate(-25deg); }
+
+    .slide.t-enter.t-zoom:not(.active)     { transform: scale(0.78); filter: blur(10px) brightness(0.6); }
+    .slide.t-exit.t-zoom                   { transform: scale(1.14); opacity: 0; filter: blur(16px) brightness(1.4); }
+
+    .slide.t-enter.t-fade:not(.active)     { transform: scale(0.98); filter: blur(6px) brightness(0.75); }
+    .slide.t-exit.t-fade                   { transform: scale(1.02); opacity: 0; filter: blur(10px) brightness(1.2); }
+
+    .slide.t-enter.t-flip:not(.active)     { transform: perspective(1200px) rotateY(72deg) scale(0.88); filter: blur(8px) brightness(0.65); }
+    .slide.t-exit.t-flip                   { transform: perspective(1200px) rotateY(-72deg) scale(0.88); opacity: 0; filter: blur(12px) brightness(1.3); }
+    .slide.t-enter.t-flip.rev:not(.active) { transform: perspective(1200px) rotateY(-72deg) scale(0.88); }
+    .slide.t-exit.t-flip.rev               { transform: perspective(1200px) rotateY(72deg) scale(0.88); }
+
+    .slide.t-enter.t-rise:not(.active)     { transform: translateY(9vh) scale(0.94); filter: blur(12px) brightness(0.6); }
+    .slide.t-exit.t-rise                   { transform: translateY(-8vh) scale(0.94); opacity: 0; filter: blur(14px) brightness(1.25); }
+
+    .slide.t-enter.t-curtain:not(.active)  { transform: translateY(100%); filter: brightness(0.5); }
+    .slide.t-exit.t-curtain                { transform: translateY(-18vh); opacity: 0; filter: blur(8px) brightness(1.15); }
+    .slide.t-enter.t-curtain.rev:not(.active) { transform: translateY(-100%); }
+    .slide.t-exit.t-curtain.rev            { transform: translateY(18vh); }
+
+    .slide.t-enter.t-spin:not(.active)    { transform: rotateZ(-7deg) scale(0.84); filter: blur(12px) brightness(0.55); }
+    .slide.t-exit.t-spin                   { transform: rotateZ(7deg) scale(0.84); opacity: 0; filter: blur(16px) brightness(1.35) hue-rotate(40deg); }
+    .slide.t-enter.t-spin.rev:not(.active){ transform: rotateZ(7deg) scale(0.84); }
+    .slide.t-exit.t-spin.rev               { transform: rotateZ(-7deg) scale(0.84); }
+
+    .slide.t-enter.t-push:not(.active)    { transform: translateX(100%); filter: brightness(0.7); }
+    .slide.t-exit.t-push                   { transform: translateX(-100%); opacity: 0; }
+    .slide.t-enter.t-push.rev:not(.active){ transform: translateX(-100%); }
+    .slide.t-exit.t-push.rev               { transform: translateX(100%); }
+
+    .slide.t-enter.t-dissolve:not(.active){ transform: scale(1.06); filter: blur(22px) brightness(1.5) saturate(1.8); }
+    .slide.t-exit.t-dissolve               { transform: scale(0.92); opacity: 0; filter: blur(24px) brightness(0.4) saturate(0.3); }
+
+    .slide.t-enter.t-wipe:not(.active)     { transform: translateX(12vw) skewX(-4deg) scale(0.92); filter: blur(10px) brightness(0.6); clip-path: inset(0 100% 0 0); }
+    .slide.t-exit.t-wipe                   { transform: translateX(-8vw) skewX(3deg); opacity: 0; clip-path: inset(0 0 0 100%); filter: blur(8px); }
+    .slide.active.t-enter.t-wipe           { clip-path: inset(0 0 0 0); }
+    .slide.active .inner > * {
+      animation: riseIn .85s cubic-bezier(.22,1,.36,1) both;
+    }
+    .slide.active .panel,
+    .slide.active .fig-wrap,
+    .slide.active .metric,
+    .slide.active .eq-block {
+      animation: cardPop .7s cubic-bezier(.34,1.56,.64,1) both;
+    }
+    .slide.active .slide-header { animation-delay: .05s; }
+    .slide.active .topbar { animation-delay: .05s; }
+    .slide.active .headline,
+    .slide.active .hero-title { animation-delay: .1s; }
+    .slide.active .subhead { animation-delay: .15s; }
+    .slide.active .body-grid,
+    .slide.active .slide-body,
+    .slide.active .hero-grid { animation-delay: .2s; }
+    .slide.active .panel:nth-child(1),
+    .slide.active .fig-wrap:nth-child(1) { animation-delay: .28s; }
+    .slide.active .panel:nth-child(2),
+    .slide.active .fig-wrap:nth-child(2) { animation-delay: .36s; }
+    .slide.active .footnote,
+    .slide.active .hero-footer { animation-delay: .42s; }
+    @keyframes riseIn {
+      from { opacity: 0; transform: translateY(28px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes cardPop {
+      from { opacity: 0; transform: translateY(20px) scale(0.94); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 10% 0%, var(--slide-glow-a, rgba(167,139,250,.2)), transparent 55%),
+        radial-gradient(ellipse 70% 55% at 95% 100%, var(--slide-glow-b, rgba(251,113,133,.12)), transparent 50%),
+        linear-gradient(160deg, var(--slide-bg-top, #22223a) 0%, var(--slide-bg-bot, #14141e) 100%);
+      z-index: 0;
+      transition: background 1s ease;
+    }
+    .slide[data-theme="a"] { --slide-glow-a: rgba(56,189,248,.22); --slide-glow-b: rgba(56,189,248,.08); --slide-bg-top: #1a2838; }
+    .slide[data-theme="b"] { --slide-glow-a: rgba(167,139,250,.24); --slide-glow-b: rgba(167,139,250,.1); --slide-bg-top: #242038; }
+    .slide[data-theme="c"] { --slide-glow-a: rgba(52,211,153,.2); --slide-glow-b: rgba(52,211,153,.08); --slide-bg-top: #1a2e28; }
+    .slide[data-theme="d"] { --slide-glow-a: rgba(251,146,60,.22); --slide-glow-b: rgba(251,113,133,.1); --slide-bg-top: #2e2218; }
+    .slide.hero { --slide-glow-a: rgba(56,189,248,.28); --slide-glow-b: rgba(167,139,250,.18); --slide-bg-top: #1e2840; }
+    .slide::after {
+      content: "";
+      position: absolute; inset: 0;
+      background-image: radial-gradient(rgba(255,255,255,.1) 1px, transparent 1px);
+      background-size: 28px 28px;
+      opacity: .2;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .rail {
+      position: absolute; left: 0; top: 0; bottom: 0; width: 5px; z-index: 3;
+    }
+    .rail[data-s="a"] { background: linear-gradient(180deg, var(--rail-a), transparent); }
+    .rail[data-s="b"] { background: linear-gradient(180deg, var(--rail-b), transparent); }
+    .rail[data-s="c"] { background: linear-gradient(180deg, var(--rail-c), transparent); }
+    .rail[data-s="d"] { background: linear-gradient(180deg, var(--rail-d), transparent); }
+
+    .inner {
+      position: relative; z-index: 1;
+      height: 100%; width: 100%;
+      padding: clamp(58px, 7vh, 68px) clamp(24px, 4.5vw, 64px) clamp(44px, 5.5vh, 56px) clamp(20px, 3vw, 48px);
+      display: flex;
+      flex-direction: column;
+      gap: clamp(8px, 1.2vh, 14px);
+      min-height: 0;
+    }
+    .inner.compact { gap: clamp(6px, 1vh, 12px); }
+    .slide-shell {
+      gap: clamp(10px, 1.35vh, 16px);
+    }
+    .slide-header {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(8px, 1.1vh, 14px);
+    }
+    .slide-heading {
+      flex-shrink: 0;
+      overflow: visible;
+      padding-bottom: 4px;
+    }
+    .slide-body {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .slide-footer {
+      flex-shrink: 0;
+      margin-top: auto;
+    }
+    .inner.dense-body .slide-body { flex: 1; min-height: 0; }
+    .inner .body-grid,
+    .inner .slide-body.body-grid { flex: 1; min-height: 0; overflow: hidden; }
+    .inner .footnote,
+    .inner .hero-footer,
+    .inner .slide-footer { flex-shrink: 0; margin-top: auto; }
+
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .meta-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .slide-index {
+      font-family: "Syne", sans-serif;
+      font-size: .82rem; font-weight: 800;
+      letter-spacing: .18em; color: var(--muted);
+    }
+    .tag {
+      font-size: .72rem; font-weight: 600;
+      letter-spacing: .12em; text-transform: uppercase;
+      padding: .32em .75em; border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.04);
+    }
+    .tag.a { color: var(--rail-a); border-color: rgba(56,189,248,.3); }
+    .tag.b { color: var(--rail-b); border-color: rgba(167,139,250,.3); }
+    .tag.c { color: var(--rail-c); border-color: rgba(52,211,153,.3); }
+    .tag.d { color: var(--rail-d); border-color: rgba(251,146,60,.3); }
+
+    .rubric-tag {
+      font-size: .7rem; font-weight: 600; letter-spacing: .08em;
+      color: var(--gold);
+      border: 1px solid rgba(251,191,36,.4);
+      padding: .28em .6em; border-radius: 4px;
+      background: rgba(251,191,36,.07);
+    }
+
+    .inner > div:has(> .headline),
+    .slide-heading {
+      flex-shrink: 0;
+      overflow: visible;
+      padding-bottom: 6px;
+    }
+    .headline {
+      font-family: "Syne", sans-serif;
+      font-weight: 800;
+      font-size: clamp(1.72rem, 2.9vw, 2.45rem);
+      line-height: 1.22;
+      letter-spacing: -.02em;
+      padding-bottom: 0.1em;
+      overflow: visible;
+    }
+    .subhead {
+      font-size: 1.1rem; color: var(--muted);
+      margin-top: 10px; max-width: 58ch; line-height: 1.5;
+    }
+    .subhead.oneline {
+      white-space: nowrap;
+      max-width: none;
+      font-size: clamp(0.82rem, 1.35vw, 0.98rem);
+      margin-top: 6px;
+      line-height: 1.35;
+    }
+    .slide-val-hist .slide-header { margin-bottom: 2px; }
+    .slide-val-hist .slide-heading { margin-bottom: 0; }
+    h3.slide11-section-title {
+      font-family: "Syne", sans-serif;
+      font-size: .94rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      color: var(--card-accent, var(--accent));
+      margin-bottom: 10px;
+    }
+
+    .body-grid {
+      display: grid; gap: clamp(12px, 1.8vh, 20px);
+      align-content: stretch; min-height: 0;
+      overflow: hidden;
+    }
+    .body-grid > * { min-height: 0; }
+    .body-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    .body-grid.cols-2w { grid-template-columns: 1.1fr .9fr; }
+    .body-grid.cols-img { grid-template-columns: 1fr 1fr; }
+    .body-grid.cols-vars-split {
+      grid-template-columns: 0.95fr 1.05fr;
+      align-items: start;
+      gap: clamp(12px, 1.6vh, 18px);
+    }
+    .fig-wrap.fig-standard .fig-media,
+    .fig-wrap.fig-vars .fig-media {
+      min-height: min(42vh, 420px);
+      max-height: min(44vh, 440px);
+    }
+    .fig-wrap.fig-standard img,
+    .fig-wrap.fig-vars img {
+      max-height: min(40vh, 400px);
+      width: 100%;
+      height: auto;
+      object-fit: contain;
+    }
+    .body-grid.cols-cld { grid-template-columns: 1.25fr 0.75fr; }
+    .body-grid.cols-vv {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto 1fr;
+      align-items: stretch;
+      gap: clamp(10px, 1.4vh, 16px);
+    }
+    .body-grid.cols-vv .panel-span { grid-column: 1 / -1; }
+    .body-grid.cols-vv .fig-wrap {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .body-grid.cols-vv .fig-wrap.fig-standard .fig-media {
+      flex: 1;
+      min-height: min(38vh, 400px);
+      max-height: min(42vh, 420px);
+    }
+    .body-grid.cols-vv.cols-vv-val .panel-span {
+      padding: 12px 16px;
+    }
+    .body-grid.cols-vv.cols-vv-val .panel-span ul.clean li {
+      margin: .3em 0;
+      font-size: .93rem;
+      line-height: 1.4;
+    }
+    .body-grid.cols-vv.cols-vv-val .fig-wrap.fig-standard .fig-media {
+      min-height: min(46vh, 470px);
+      max-height: min(50vh, 510px);
+    }
+    .body-grid.cols-vv.cols-vv-val .fig-wrap.fig-standard img {
+      max-height: min(48vh, 490px);
+    }
+
+    .hover-card,
+    .panel {
+      background: var(--card-bg, rgba(255,255,255,.06));
+      border: 1px solid var(--card-border, rgba(255,255,255,.14));
+      border-radius: 14px;
+      padding: 18px 20px;
+      backdrop-filter: blur(16px) saturate(1.2);
+      box-shadow: var(--card-shadow,
+        0 2px 4px rgba(0,0,0,.14),
+        0 8px 22px rgba(0,0,0,.26),
+        0 18px 44px rgba(0,0,0,.2),
+        inset 0 1px 0 rgba(255,255,255,.12),
+        inset 0 -1px 0 rgba(0,0,0,.18));
+      transition: transform .35s cubic-bezier(.22,1,.36,1),
+                  box-shadow .35s ease,
+                  border-color .35s ease,
+                  background .35s ease,
+                  filter .35s ease;
+    }
+    .hover-card:hover,
+    .panel:hover {
+      transform: scale(1.02);
+      border-color: var(--card-border-hover, rgba(167,139,250,.45));
+      background: var(--card-bg-hover, rgba(255,255,255,.1));
+      box-shadow:
+        0 4px 8px rgba(0,0,0,.18),
+        0 14px 36px rgba(0,0,0,.34),
+        0 24px 52px rgba(0,0,0,.22),
+        inset 0 1px 0 rgba(255,255,255,.14);
+      filter: brightness(1.06);
+    }
+    .panel h3 {
+      font-family: "Syne", sans-serif;
+      font-size: .94rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+      color: var(--card-accent, var(--accent)); margin-bottom: 10px;
+    }
+
+    .slide[data-theme="a"] {
+      --card-bg: rgba(56,189,248,.07);
+      --card-bg-hover: rgba(56,189,248,.12);
+      --card-border: rgba(56,189,248,.22);
+      --card-border-hover: rgba(56,189,248,.45);
+      --card-accent: #7dd3fc;
+      --card-shadow: 0 4px 10px rgba(0,0,0,.2), 0 12px 32px rgba(0,0,0,.28), 0 22px 48px rgba(56,189,248,.08), inset 0 1px 0 rgba(56,189,248,.16), inset 0 -1px 0 rgba(0,0,0,.2);
+    }
+    .slide[data-theme="b"] {
+      --card-bg: rgba(167,139,250,.08);
+      --card-bg-hover: rgba(167,139,250,.13);
+      --card-border: rgba(167,139,250,.24);
+      --card-border-hover: rgba(167,139,250,.48);
+      --card-accent: #c4b5fd;
+      --card-shadow: 0 4px 10px rgba(0,0,0,.2), 0 12px 32px rgba(0,0,0,.28), 0 22px 48px rgba(167,139,250,.1), inset 0 1px 0 rgba(167,139,250,.16), inset 0 -1px 0 rgba(0,0,0,.2);
+    }
+    .slide[data-theme="c"] {
+      --card-bg: rgba(52,211,153,.07);
+      --card-bg-hover: rgba(52,211,153,.12);
+      --card-border: rgba(52,211,153,.22);
+      --card-border-hover: rgba(52,211,153,.45);
+      --card-accent: #6ee7b7;
+      --card-shadow: 0 4px 10px rgba(0,0,0,.2), 0 12px 32px rgba(0,0,0,.28), 0 22px 48px rgba(52,211,153,.08), inset 0 1px 0 rgba(52,211,153,.16), inset 0 -1px 0 rgba(0,0,0,.2);
+    }
+    .slide[data-theme="d"] {
+      --card-bg: rgba(251,146,60,.08);
+      --card-bg-hover: rgba(251,146,60,.13);
+      --card-border: rgba(251,146,60,.24);
+      --card-border-hover: rgba(251,146,60,.48);
+      --card-accent: #fdba74;
+      --card-shadow: 0 4px 10px rgba(0,0,0,.2), 0 12px 32px rgba(0,0,0,.28), 0 22px 48px rgba(251,146,60,.08), inset 0 1px 0 rgba(251,146,60,.16), inset 0 -1px 0 rgba(0,0,0,.2);
+    }
+    .slide.hero {
+      --card-bg: rgba(255,255,255,.07);
+      --card-border: rgba(255,255,255,.16);
+      --card-accent: #7dd3fc;
+    }
+
+    ul.clean { list-style: none; }
+    ul.clean li {
+      position: relative; padding-left: 1.15em;
+      margin: .52em 0; font-size: 1.08rem; line-height: 1.52;
+    }
+    ul.clean li::before {
+      content: ""; position: absolute; left: 0; top: .52em;
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent-2);
+    }
+
+    .loop-pill {
+      display: inline-block; font-size: .72rem; font-weight: 700;
+      padding: .18em .5em; border-radius: 4px; margin-right: 5px;
+    }
+    .loop-pill.r { background: rgba(251,113,133,.22); color: #fda4af; }
+    .loop-pill.b { background: rgba(56,189,248,.18); color: #7dd3fc; }
+
+    .fig-wrap {
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.1);
+      background: rgba(0,0,0,.25);
+      overflow: visible;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      cursor: zoom-in;
+      transition: transform .35s cubic-bezier(.22,1,.36,1),
+                  box-shadow .35s ease,
+                  border-color .35s ease,
+                  filter .35s ease;
+    }
+    .fig-wrap:hover {
+      transform: scale(1.02);
+      border-color: rgba(56,189,248,.4);
+      box-shadow: 0 10px 28px rgba(0,0,0,.4);
+      filter: brightness(1.06);
+    }
+    .fig-wrap .fig-media {
+      overflow: hidden;
+      border-radius: 11px 11px 0 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1 1 auto;
+      min-height: 0;
+      background: rgba(0,0,0,.2);
+    }
+    .fig-wrap img {
+      width: 100%; height: 100%;
+      max-height: min(30vh, 340px);
+      object-fit: contain; display: block;
+      transition: transform .35s ease;
+    }
+    .fig-wrap:hover .fig-media img { transform: scale(1.02); }
+    .fig-wrap.fill {
+      flex: 1; min-height: 0; height: 100%;
+      border-color: var(--card-border, rgba(255,255,255,.12));
+      background: var(--card-bg, rgba(0,0,0,.2));
+      box-shadow: var(--card-shadow, 0 8px 24px rgba(0,0,0,.2));
+    }
+    .fig-wrap.fill .fig-media {
+      flex: 1;
+      min-height: min(46vh, 520px);
+      padding: 6px;
+      background: rgba(255,255,255,.03);
+      align-items: stretch;
+      justify-content: stretch;
+    }
+    .fig-wrap.fill img {
+      width: 100%; height: 100%;
+      max-height: none;
+      min-height: 0;
+      object-fit: contain;
+    }
+    .fig-wrap.tall .fig-media { min-height: min(40vh, 440px); }
+    .fig-wrap.tall img { max-height: none; height: 100%; }
+    .fig-wrap.wide .fig-media { min-height: min(34vh, 380px); }
+    .fig-wrap.wide img { max-height: none; height: 100%; }
+    .fig-wrap.compact .fig-media { min-height: min(16vh, 180px); }
+    .fig-wrap.compact img { max-height: none; height: 100%; }
+    .fig-cap {
+      flex-shrink: 0;
+      font-size: .84rem; color: #d8d8e8;
+      text-align: center;
+      padding: 10px 12px;
+      line-height: 1.35;
+      border-top: 1px solid rgba(255,255,255,.08);
+      background: rgba(30,30,44,.9);
+      border-radius: 0 0 11px 11px;
+    }
+    #lightbox {
+      position: fixed; inset: 0; z-index: 9999;
+      background: rgba(8,8,14,.92);
+      backdrop-filter: blur(12px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 48px 32px 32px;
+      opacity: 0; visibility: hidden;
+      transition: opacity .35s ease, visibility .35s;
+    }
+    #lightbox.open { opacity: 1; visibility: visible; }
+    #lightbox img {
+      max-width: min(96vw, 1200px);
+      max-height: calc(100vh - 120px);
+      object-fit: contain;
+      border-radius: 8px;
+      box-shadow: 0 24px 80px rgba(0,0,0,.6);
+      animation: lbIn .4s cubic-bezier(.22,1,.36,1);
+    }
+    @keyframes lbIn {
+      from { transform: scale(.92); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    #lb-cap {
+      margin-top: 16px; font-size: 1rem; color: #e8e8f0;
+      text-align: center; max-width: 720px; line-height: 1.45;
+    }
+    #lb-close {
+      position: absolute; top: 20px; right: 24px;
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 1px solid rgba(255,255,255,.2);
+      background: rgba(255,255,255,.08);
+      color: #fff; font-size: 1.5rem; cursor: pointer;
+      line-height: 1; transition: background .2s, transform .2s;
+    }
+    #lb-close:hover { background: rgba(255,255,255,.18); transform: scale(1.05); }
+
+    table.data {
+      width: 100%; border-collapse: collapse; font-size: .96rem;
+    }
+    table.data th {
+      text-align: left; font-size: .74rem;
+      text-transform: uppercase; letter-spacing: .08em;
+      color: var(--muted); padding: 6px 8px;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      position: sticky; top: 0; background: rgba(46,46,66,.95);
+    }
+    table.data td {
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(255,255,255,.05);
+      vertical-align: top;
+    }
+    table.data tr { transition: background .2s; cursor: default; }
+    table.data tbody tr:hover { background: rgba(167,139,250,.12); }
+    table.data .type-stock { color: #7dd3fc; font-weight: 600; }
+    table.data .type-flow { color: #fda4af; font-weight: 600; }
+    table.data .type-aux { color: var(--muted); }
+    table.data .type-const { color: var(--gold); }
+
+    .col-stack {
+      display: flex; flex-direction: column; gap: clamp(8px, 1vh, 12px);
+      min-height: 0;
+    }
+    table.data.table-vars { font-size: .8rem; }
+    table.data.table-vars th { font-size: .7rem; padding: 5px 7px; position: static; }
+    table.data.table-vars td { padding: 4px 7px; line-height: 1.38; }
+    table.data.table-compact { font-size: .8rem; }
+    table.data.table-compact th,
+    table.data.table-compact td { padding: 5px 8px; }
+    table.data.table-compact th { position: static; }
+    table.data.table-policy { font-size: .88rem; }
+    table.data.table-policy th {
+      font-size: .78rem; padding: 5px 7px; white-space: nowrap;
+    }
+    table.data.table-policy td { padding: 5px 7px; white-space: nowrap; }
+    table.data.table-policy td:first-child { white-space: normal; min-width: 5.5rem; }
+    table.data.table-policy thead tr:nth-child(2) th {
+      background: rgba(255,255,255,.06);
+      border-top: 1px solid rgba(255,255,255,.12);
+    }
+    table.data.table-behaviors { font-size: .86rem; }
+    table.data.table-behaviors th {
+      font-size: .78rem; padding: 5px 7px; white-space: nowrap;
+      vertical-align: bottom;
+    }
+    table.data.table-behaviors td {
+      padding: 5px 7px; line-height: 1.4; vertical-align: top;
+    }
+    table.data.table-behaviors td:nth-child(1) { white-space: nowrap; font-weight: 600; color: #e0e0ec; }
+    table.data.table-behaviors td:nth-child(2) { min-width: 7.5rem; }
+    table.data.table-behaviors td:nth-child(3) { white-space: nowrap; }
+    table.data.table-behaviors td:nth-child(4) { color: #b8b8c8; }
+    .subhead.brief { max-width: 42ch; font-size: .98rem; }
+    .val-chart-panel { padding: 10px 12px !important; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+    .val-chart-panel h3 { font-size: .98rem; margin-bottom: 2px; }
+    .val-chart {
+      width: 100%; height: auto; flex: 1; min-height: 0;
+      display: block;
+    }
+    .chart-legend {
+      display: flex; flex-wrap: wrap; gap: 12px 18px; font-size: .84rem; color: #d8d8e8; margin: 0;
+    }
+    .chart-legend .lg-real::before,
+    .chart-legend .lg-sim::before,
+    .chart-legend .lg-err::before {
+      content: ""; display: inline-block; width: 10px; height: 10px;
+      border-radius: 50%; margin-right: 6px; vertical-align: middle;
+    }
+    .chart-legend .lg-real::before { background: var(--accent-3); }
+    .chart-legend .lg-sim::before { background: var(--accent-2); }
+    .chart-legend .lg-err::before { background: var(--gold); border-radius: 1px; width: 10px; height: 10px; }
+    .chart-src { font-size: .78rem; color: #c8c8d8; margin: 0; line-height: 1.4; }
+    .chart-zoom-wrap {
+      cursor: zoom-in; border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px; padding: 4px 6px; margin: 0;
+      background: rgba(0,0,0,.15); transition: border-color .2s;
+    }
+    .chart-zoom-wrap[data-zoom-id$="-main"] { margin-bottom: 14px; }
+    .chart-zoom-wrap[data-zoom-id$="-err"] { margin-bottom: 8px; }
+    .chart-zoom-wrap:hover { border-color: rgba(167,139,250,.45); }
+    .chart-zoom-wrap .val-chart { pointer-events: none; display: block; }
+    .chart-zoom-cap {
+      font-size: .74rem; color: #b8b8c8; text-align: center;
+      margin: 3px 0 0; line-height: 1.35;
+    }
+    #lightbox #lb-svg-wrap {
+      display: none;
+      width: min(94vw, 1100px);
+      max-height: calc(100vh - 140px);
+      flex-shrink: 0;
+    }
+    #lightbox #lb-svg-wrap svg {
+      width: 100%; height: auto; display: block;
+      border-radius: 8px;
+      box-shadow: 0 24px 80px rgba(0,0,0,.6);
+      animation: lbIn .4s cubic-bezier(.22,1,.36,1);
+    }
+    table.data.table-team { font-size: .78rem; }
+    table.data.table-team th { font-size: .68rem; padding: 5px 6px; }
+    table.data.table-team td { padding: 5px 6px; line-height: 1.35; vertical-align: top; }
+    .table-panel { padding: 10px 12px !important; overflow: visible; }
+
+    .eq-block {
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: .94rem; line-height: 1.75;
+      background: var(--card-bg, rgba(0,0,0,.35));
+      border: 1px solid var(--card-border, rgba(167,139,250,.25));
+      box-shadow: var(--card-shadow,
+        0 2px 4px rgba(0,0,0,.14),
+        0 8px 22px rgba(0,0,0,.26),
+        0 18px 44px rgba(0,0,0,.2),
+        inset 0 1px 0 rgba(255,255,255,.1),
+        inset 0 -1px 0 rgba(0,0,0,.18));
+      border-radius: 10px;
+      padding: 16px 18px;
+      color: #e8e8f0;
+    }
+    .eq-block .hl { color: var(--accent-2); font-weight: 600; }
+    .eq-block .kw { color: var(--accent-3); }
+
+    .metric-row {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    }
+    .metric-row.four-cols { grid-template-columns: repeat(4, 1fr); }
+    .loop-chain { font-size: .82rem; line-height: 1.42; margin: 6px 0 0; }
+    .loop-chain li { margin-bottom: 3px; }
+    .loop-meta { font-size: .78rem; color: var(--muted); margin-top: 6px; }
+    .metric {
+      text-align: center; padding: 14px 10px;
+      border-radius: 12px;
+      border: 1px solid var(--card-border, rgba(255,255,255,.12));
+      background: var(--card-bg, rgba(255,255,255,.04));
+      box-shadow:
+        0 2px 4px rgba(0,0,0,.12),
+        0 8px 20px rgba(0,0,0,.22),
+        inset 0 1px 0 rgba(255,255,255,.1),
+        inset 0 -1px 0 rgba(0,0,0,.15);
+      transition: transform .35s cubic-bezier(.22,1,.36,1),
+                  border-color .35s ease,
+                  background .35s ease,
+                  filter .35s ease,
+                  box-shadow .35s ease;
+    }
+    .metric:hover {
+      transform: scale(1.04);
+      border-color: var(--card-border-hover, rgba(167,139,250,.45));
+      background: var(--card-bg-hover, rgba(167,139,250,.1));
+      filter: brightness(1.08);
+      box-shadow: 0 8px 20px rgba(0,0,0,.25);
+    }
+    .metric .val {
+      font-family: "Syne", sans-serif;
+      font-size: 1.65rem; font-weight: 800;
+      color: var(--accent-4);
+    }
+    .metric .lbl { font-size: .72rem; color: var(--muted); margin-top: 4px; line-height: 1.3; }
+
+    .footnote {
+      font-size: .9rem; color: var(--muted);
+      border-left: 3px solid var(--accent-2);
+      padding: 6px 0 6px 12px; line-height: 1.4;
+    }
+
+    /* —— Hero —— */
+    .slide.hero::before {
+      background:
+        radial-gradient(ellipse 90% 70% at 70% 15%, rgba(56,189,248,.22), transparent),
+        radial-gradient(ellipse 50% 55% at 8% 85%, rgba(167,139,250,.18), transparent),
+        linear-gradient(145deg, #2a2a40 0%, #1a1a26 65%, #14141e 100%);
+    }
+    .slide.hero .inner {
+      justify-content: center;
+      padding: clamp(28px, 5vh, 56px) clamp(32px, 6vw, 80px);
+      gap: clamp(16px, 3vh, 28px);
+    }
+    .hero-grid {
+      display: grid; grid-template-columns: 1.15fr 1fr;
+      gap: 32px; align-items: center;
+    }
+    .hero-title {
+      font-family: "Syne", sans-serif;
+      font-size: clamp(2.2rem, 5vw, 3.2rem); font-weight: 800;
+      line-height: .98; letter-spacing: -.03em;
+    }
+    .hero-title span {
+      display: block; font-size: 1.2rem; font-weight: 600;
+      color: var(--accent-3); margin-top: 14px; letter-spacing: 0;
+      line-height: 1.35;
+    }
+    .hero-card {
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 18px; padding: 22px 24px;
+      font-size: 1rem; line-height: 1.6; color: #e4e4ec;
+      transition: transform .35s ease, filter .35s ease, box-shadow .35s ease;
+    }
+    .hero-card:hover {
+      transform: scale(1.015);
+      filter: brightness(1.06);
+      box-shadow: 0 12px 36px rgba(0,0,0,.3);
+    }
+    .hero-card strong { color: var(--text); }
+
+    .gp-box {
+      margin-top: 18px;
+      background: linear-gradient(135deg, #f8fafc 0%, #e8edf5 100%);
+      border: 1px solid rgba(255,255,255,.6);
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.8);
+    }
+    .gp-box p {
+      font-size: .78rem; color: #475569;
+      margin-bottom: 10px; font-weight: 500;
+    }
+    .gp-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 18px;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: #f8fafc;
+      text-decoration: none;
+      border-radius: 10px;
+      font-size: .88rem; font-weight: 600;
+      letter-spacing: .02em;
+      border: 1px solid rgba(255,255,255,.15);
+      transition: transform .2s, box-shadow .2s, background .2s;
+      box-shadow: 0 4px 14px rgba(15,23,42,.35);
+    }
+    .gp-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(56,189,248,.3);
+      background: linear-gradient(135deg, #1e293b, #334155);
+    }
+    .gp-btn svg { width: 16px; height: 16px; fill: currentColor; opacity: .85; }
+
+    .hero-footer {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: .82rem; color: var(--muted); letter-spacing: .04em;
+    }
+
+    /* —— Chrome (controles sin solapar contenido) —— */
+    #chrome {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 400;
+      height: 52px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      padding: 0 clamp(16px, 3vw, 28px);
+      background: linear-gradient(180deg, rgba(8,8,14,.94) 0%, rgba(8,8,14,.72) 65%, transparent 100%);
+      pointer-events: none;
+    }
+    #chrome > * { pointer-events: auto; }
+    #chrome-left { justify-self: start; }
+    #chrome-center { justify-self: center; }
+    #chrome-right { justify-self: end; display: flex; gap: 6px; }
+
+    #counter-ui {
+      font-family: "Syne", sans-serif;
+      font-size: .82rem; font-weight: 700;
+      letter-spacing: .16em; color: rgba(255,255,255,.65);
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,.1);
+      background: rgba(255,255,255,.05);
+      backdrop-filter: blur(8px);
+    }
+
+    #audio-toggle {
+      width: 38px; height: 38px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.05rem; color: var(--muted);
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 10px; padding: 0;
+      cursor: pointer; backdrop-filter: blur(8px);
+    }
+    #audio-toggle.on { color: var(--accent-3); border-color: rgba(56,189,248,.4); background: rgba(56,189,248,.1); }
+
+    #ui button {
+      width: 38px; height: 38px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06); color: #fff;
+      font-size: 1rem; cursor: pointer;
+      backdrop-filter: blur(10px);
+      transition: background .2s, border-color .2s, transform .15s;
+    }
+    #ui button:hover { background: rgba(167,139,250,.3); border-color: rgba(167,139,250,.45); }
+    #ui button:active { transform: scale(.94); }
+
+    #dots {
+      position: fixed; bottom: clamp(12px, 2vh, 20px); left: 50%;
+      transform: translateX(-50%);
+      display: flex; gap: 7px; z-index: 200;
+      padding: 6px 12px;
+      border-radius: 20px;
+      background: rgba(8,8,14,.55);
+      backdrop-filter: blur(8px);
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: rgba(255,255,255,.2);
+      border: none; cursor: pointer; padding: 0;
+      transition: transform .2s, background .2s;
+    }
+    .dot.active { background: var(--accent); transform: scale(1.3); }
+
+    @page {
+      size: 13.333in 7.5in;
+      margin: 0;
+    }
+    @media print {
+      #chrome, #dots, #transition-flash, #lightbox { display: none !important; }
+      html, body {
+        overflow: visible !important;
+        height: auto !important;
+        width: auto !important;
+        margin: 0 !important;
+        background: #14141e !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      #stage, #deck-wrap, #deck {
+        position: static !important;
+        overflow: visible !important;
+        height: auto !important;
+        width: 100% !important;
+        perspective: none !important;
+      }
+      .slide {
+        position: relative !important;
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: none !important;
+        filter: none !important;
+        overflow: hidden !important;
+        width: 13.333in !important;
+        height: 7.5in !important;
+        min-height: 7.5in !important;
+        max-height: 7.5in !important;
+        page-break-after: always;
+        break-after: page;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .slide:last-child { page-break-after: auto; }
+      .inner {
+        padding: 36px 48px 28px 40px !important;
+        overflow: hidden !important;
+        height: 100% !important;
+        gap: 8px !important;
+      }
+      .slide.active .inner > *,
+      .slide.active .panel,
+      .slide.active .fig-wrap,
+      .slide.active .metric,
+      .slide.active .eq-block {
+        animation: none !important;
+      }
+      .body-grid, .col-stack, .panel, .table-panel, .slide-body { overflow: hidden !important; }
+      .fig-wrap.fig-standard .fig-media,
+      .fig-wrap.fig-vars .fig-media { min-height: 0 !important; max-height: 34vh !important; }
+      .fig-wrap.fill .fig-media { min-height: 0 !important; max-height: 48vh !important; }
+      .fig-wrap.wide .fig-media { min-height: 0 !important; max-height: 38vh !important; }
+      .fig-wrap.compact .fig-media { min-height: 0 !important; max-height: 22vh !important; }
+      .fig-wrap img { max-height: 100% !important; }
+      .hover-card:hover, .panel:hover, .fig-wrap:hover, .metric:hover { transform: none !important; }
+      a.gp-btn { color: #0f172a !important; text-decoration: none !important; }
+    }
+
+    .policy-bar {
+      display: flex; align-items: flex-end; gap: 8px; height: 100px; margin-top: 8px;
+    }
+    .policy-bar .bar {
+      flex: 1; border-radius: 6px 6px 0 0;
+      background: linear-gradient(180deg, var(--accent-3), rgba(56,189,248,.3));
+      transition: height .6s cubic-bezier(.4,0,.2,1);
+      position: relative; min-width: 0;
+    }
+    .policy-bar .bar.best {
+      background: linear-gradient(180deg, var(--accent-4), rgba(52,211,153,.3));
+    }
+    .policy-bar .bar span {
+      position: absolute; bottom: -22px; left: 50%;
+      transform: translateX(-50%);
+      font-size: .62rem; color: var(--muted);
+      white-space: nowrap; text-align: center; line-height: 1.2;
+    }
+    .policy-bar .bar em {
+      position: absolute; top: -20px; left: 50%;
+      transform: translateX(-50%);
+      font-size: .78rem; font-weight: 700;
+      font-style: normal; color: var(--text);
+    }
+
+    @media (max-width: 900px) {
+      .hero-grid, .body-grid.cols-2, .body-grid.cols-2w, .body-grid.cols-img, .body-grid.cols-vars-split, .body-grid.cols-vv {
+        grid-template-columns: 1fr;
+      }
+      .body-grid.cols-vv .panel-span { grid-column: 1; }
+      .hero-title { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+  <div id="transition-flash"></div>
+  <header id="chrome">
+    <div id="chrome-left">
+      <button type="button" id="audio-toggle" class="on" title="Sonido táctil" aria-label="Sonido">♪</button>
+    </div>
+    <div id="chrome-center">
+      <div id="counter-ui">01 — 12</div>
+    </div>
+    <div id="chrome-right">
+      <div id="ui">
+        <button type="button" id="btn-prev" title="Anterior">←</button>
+        <button type="button" id="btn-next" title="Siguiente">→</button>
+        <button type="button" id="btn-fs" title="Pantalla completa">⛶</button>
+      </div>
+    </div>
+  </header>
+  <div id="stage">
+    <div id="deck-wrap">
+      <div id="deck">
+
+        <!-- 01 PORTADA -->
+        <section class="slide hero active" data-i="0" data-trans="glide">
+          <div class="inner">
+            <div class="hero-grid">
+              <div>
+                <p class="slide-index">MODELOS Y SIMULACIÓN · UNAL</p>
+                <h1 class="hero-title">
+                  Rutas de descarbonización<br />del transporte de pasajeros
+                  <span>Pekín, China · Modelo de dinámica de sistemas</span>
+                </h1>
+              </div>
+              <div class="hero-card">
+                <p style="font-size:.92rem;line-height:1.55"><strong>Cita APA 7:</strong> Liu, R., &amp; Liu, N. (2025). <em>Study on urban passenger transport carbon reduction pathways based on system dynamics</em>. <em>Scientific Reports</em>, <em>15</em>(1), Article 37471. https://doi.org/10.1038/s41598-025-21386-8</p>
+                <p style="margin-top:12px"><strong>Curso:</strong> Modelos y Simulación (2025970-G4)</p>
+                <p><strong>Docente:</strong> Angela María Arboleda Restrepo</p>
+                <p style="margin-top:10px"><strong>Equipo:</strong> Samuel Herrera · Katherinne Olaya · Fredy Garcia · Ever Muñoz</p>
+                <div class="gp-box">
+                  <p>Presentación interactiva · despliegue en GitHub Pages</p>
+                  <a class="gp-btn" href="https://nicolasmcort.github.io/mys_ds_beijing_transport/" target="_blank" rel="noopener">
+                    <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                    Abrir presentación web
+                  </a>
+                </div>
+              </div>
+            </div>
+            <div class="hero-footer">
+              <span>UNAL · Ingeniería · Bogotá</span>
+              <span>Sterman · <em>Business Dynamics</em>, Cap. 4 · Vensim PLE</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 PROBLEMA -->
+        <section class="slide" data-i="1" data-theme="a" data-trans="zoom">
+          <div class="rail" data-s="a"></div>
+          <div class="inner compact slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag a">Contexto</span>
+                </div>
+                <span class="rubric-tag">PROBLEMA · METAS DUALES</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Desequilibrio emisiones–movilidad en megaciudades</h2>
+                <p class="subhead">El transporte urbano de pasajeros concentra presión sobre los objetivos de Carbon Peak (2030) y Carbon Neutrality (2060) en China.</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-2">
+              <div class="panel hover-card">
+                <h3>Problema central</h3>
+                <ul class="clean">
+                  <li>El transporte aporta ~<strong>24 %</strong> de las emisiones globales de carbono; el transporte urbano de pasajeros es un vector crítico en megaciudades.</li>
+                  <li>Pekín debe alinear movilidad con las metas nacionales <strong>Carbon Peak (2030)</strong> y <strong>Carbon Neutrality (2060)</strong>.</li>
+                  <li>Crecimiento de demanda, congestión y baja eficiencia energética en modos tradicionales (bus, taxi) presionan las emisiones.</li>
+                </ul>
+              </div>
+              <div class="panel hover-card">
+                <h3>Pregunta de investigación</h3>
+                <ul class="clean">
+                  <li>¿Qué combinaciones de políticas — desarrollo del transporte público, optimización tecnológica energética y orientación del comportamiento de viaje — reducen emisiones de forma más efectiva?</li>
+                  <li>¿Cómo interactúan dinámicamente población y economía, consumo energético, vías urbanas, operación del tráfico y control de emisiones?</li>
+                  <li><span class="loop-pill r">R</span> Crecimiento → demanda → emisiones → presión ambiental.</li>
+                  <li><span class="loop-pill b">B</span> Inversión en control de CO₂ → eficiencia → ↓ emisiones.</li>
+                </ul>
+              </div>
+            </div>
+            <p class="slide-footer footnote">Resumen del problema resuelto por Liu &amp; Liu (2025): descarbonizar el transporte de pasajeros en Pekín mediante simulación de escenarios de política.</p>
+          </div>
+        </section>
+
+        <!-- 03 MODELO DS -->
+        <section class="slide" data-i="2" data-theme="a" data-trans="fade">
+          <div class="rail" data-s="a"></div>
+          <div class="inner compact slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag a">Modelo DS</span>
+                </div>
+                <span class="rubric-tag">ABSTRACCIÓN · SUBSISTEMAS</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Modelo de dinámica de sistemas</h2>
+                <p class="subhead">Simulación integrada de población y economía, consumo energético, infraestructura vial urbana, operación del tráfico y control de emisiones de carbono (2010–2040).</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-img">
+              <div class="col-stack">
+                <div class="panel hover-card">
+                  <h3>Propósito y alcance</h3>
+                  <p style="font-size:1.02rem;line-height:1.5;margin-bottom:10px">Evaluar trayectorias de reducción de emisiones del transporte de pasajeros en Pekín bajo escenarios de política simple y dual.</p>
+                  <ul class="clean">
+                    <li><strong>5 módulos funcionales</strong> (fig. 8): población y economía, consumo energético, infraestructura vial urbana, operación del tráfico y control de emisiones de carbono.</li>
+                    <li><strong>Horizonte:</strong> 2010–2040 · Δt = 1 año · <strong>Vensim PLE</strong>.</li>
+                    <li><strong>Límite del sistema:</strong> metro, bus (combustible/eléctrico) y taxi — sin carga ni otros modos.</li>
+                  </ul>
+                </div>
+                <div class="metric-row four-cols">
+                  <div class="metric"><div class="val">5</div><div class="lbl">Stocks</div></div>
+                  <div class="metric"><div class="val">10</div><div class="lbl">Flows</div></div>
+                  <div class="metric"><div class="val">32</div><div class="lbl">Auxiliares</div></div>
+                  <div class="metric"><div class="val">19</div><div class="lbl">Constantes</div></div>
+                </div>
+              </div>
+              <figure class="fig-wrap wide" data-zoom>
+                <div class="fig-media"><img src="img/fig2.jpg" alt="Límite del sistema de transporte urbano" loading="lazy" /></div>
+                <figcaption class="fig-cap">Fig. 1 · Frontera del sistema: modos de transporte de pasajeros</figcaption>
+              </figure>
+            </div>
+            <p class="slide-footer footnote"><em>Sterman (2000), Cap. 4:</em> el comportamiento emerge de la estructura — 5 stocks · 10 flows · 32 auxiliares · 19 constantes (Table 1, Liu &amp; Liu, 2025).</p>
+          </div>
+        </section>
+
+        <!-- 04 DATOS -->
+        <section class="slide" data-i="3" data-theme="a" data-trans="flip">
+          <div class="rail" data-s="a"></div>
+          <div class="inner compact dense-body slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag a">Datos empíricos</span>
+                </div>
+                <span class="rubric-tag">FUENTES · PARAMETRIZACIÓN · SUPUESTOS</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Conjunto de datos</h2>
+                <p class="subhead">Origen, naturaleza y relevancia de los datos para <strong>parametrizar</strong> el modelo DS (Pekín, calibración 2010–2024).</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-2">
+              <div class="panel hover-card">
+                <h3>Fuentes y naturaleza</h3>
+                <ul class="clean" style="font-size:.88rem">
+                  <li><strong>Beijing Statistical Yearbook</strong> — series anuales de PIB urbano, población y longitud vial (variables de estado y estructura económica).</li>
+                  <li><strong>Beijing Transport Development Report</strong> — volúmenes históricos de bus, trolebús y metro (demanda modal observada).</li>
+                  <li><strong>Alcance temporal:</strong> calibración con datos reales <strong>2010–2024</strong>; simulación proyectada hasta <strong>2040</strong> (Δt = 1 año · Vensim PLE).</li>
+                </ul>
+                <h3 style="margin-top:12px;font-size:1rem">Parametrización del modelo <span style="font-weight:500;color:var(--muted);font-size:.85em">(dato → Vensim)</span></h3>
+                <ul class="clean" style="font-size:.84rem">
+                  <li><strong>Stocks iniciales (2010):</strong> PIB <code>14114.3</code>, población <code>2154</code>, vías <code>153465</code> → condiciones <code>INTEG(...)</code> del Yearbook.</li>
+                  <li><strong>19 constantes (Table 1):</strong> tasas demográficas, precios de combustible, coeficientes de emisión y factores de conversión → flujos de energía y CO₂.</li>
+                </ul>
+              </div>
+              <div class="panel hover-card">
+                <h3>Supuestos del modelo <span style="font-weight:500;color:var(--muted);font-size:.85em">(Liu &amp; Liu, 2025)</span></h3>
+                <ul class="clean" style="font-size:.9rem">
+                  <li><strong>1)</strong> El proceso de descarbonización del transporte de pasajeros es <strong>continuo y estable</strong>, sin considerar cambios ambientales súbitos ni factores imprevistos.</li>
+                  <li><strong>2)</strong> El modelo se trata como un <strong>sistema cerrado</strong>, excluyendo perturbaciones externas.</li>
+                  <li><strong>3)</strong> El alcance incluye <strong>cinco subsistemas</strong> (fig. 8): población y economía, consumo energético, infraestructura vial urbana, operación del tráfico y control de emisiones de carbono; otros aspectos quedan fuera.</li>
+                  <li><strong>4)</strong> La vía de descarbonización tiene <strong>efectos recíprocos</strong> sobre cada subsistema del modelo.</li>
+                  <li><strong>5)</strong> Enfoque <strong>exclusivo</strong> en la descarbonización del transporte de pasajeros urbano, sin otros sectores ni dominios.</li>
+                </ul>
+              </div>
+            </div>
+            <p class="slide-footer footnote"><strong>Limitaciones críticas:</strong> calibración empírica hasta 2024; la proyección 2025–2040 extrapola la estructura calibrada; constantes fijas en escenario base (sin shocks externos, sup. 1–2).</p>
+          </div>
+        </section>
+
+        <!-- 05 CLD -->
+        <section class="slide" data-i="4" data-theme="b" data-trans="glide">
+          <div class="rail" data-s="b"></div>
+          <div class="inner compact dense-body slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag b">Estructura causal</span>
+                </div>
+                <span class="rubric-tag">CLD · BUCLES R/B</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Diagrama de ciclos causales (CLD)</h2>
+                <p class="subhead">Tres arquetipos estructurales (R/B) que comparten PIB, demanda y emisiones — el artículo identifica <strong>15 bucles</strong> en total (fig. 2).</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-cld">
+              <figure class="fig-wrap fill" data-zoom>
+                <div class="fig-media"><img src="img/fig1.png" alt="Diagrama causal del sistema de emisiones de transporte" loading="lazy" /></div>
+                <figcaption class="fig-cap">Fig. 2 · CLD integrado · polaridades +/− por subsistema</figcaption>
+              </figure>
+              <div class="col-stack">
+                <div class="panel">
+                  <h3><span class="loop-pill r">R</span> Crecimiento economía–movilidad</h3>
+                  <ul class="clean loop-chain">
+                    <li>PIB urbano <strong>(+)</strong> → Industria terciaria <strong>(+)</strong></li>
+                    <li>→ Demanda de transporte <strong>(+)</strong> → Oferta <strong>(+)</strong></li>
+                    <li>→ Capacidad de transporte <strong>(+)</strong> → PIB urbano <strong>(+)</strong></li>
+                  </ul>
+                  <p class="loop-meta">0 eslabones (−) → bucle de refuerzo. El cierre es económico, no vía emisiones.</p>
+                </div>
+                <div class="panel">
+                  <h3><span class="loop-pill b">B</span> Daño ambiental sobre la economía</h3>
+                  <ul class="clean loop-chain">
+                    <li>Emisiones <strong>(+)</strong> → Contaminación CO₂ <strong>(+)</strong></li>
+                    <li>→ Pérdidas ambientales <strong>(+)</strong> → <em>Loss Delay</em> <strong>(+)</strong></li>
+                    <li>→ PIB urbano <strong>(−)</strong></li>
+                  </ul>
+                  <p class="loop-meta">1 eslabón (−) → frena el crecimiento con <strong>retraso de 2 años</strong> en el impacto económico.</p>
+                </div>
+                <div class="panel">
+                  <h3><span class="loop-pill b">B</span> Mitigación / gobernanza del carbono</h3>
+                  <ul class="clean loop-chain">
+                    <li>Emisiones <strong>(+)</strong> → Inversión en control CO₂ <strong>(+)</strong></li>
+                    <li>→ Eficiencia de gestión <strong>(+)</strong> → Emisiones <strong>(−)</strong></li>
+                  </ul>
+                  <p class="loop-meta">1 eslabón (−) → autorregulación del stock de carbono (fig. 5).</p>
+                </div>
+              </div>
+            </div>
+            <p class="slide-footer footnote">Liu &amp; Liu (2025) identifican <strong>15 bucles</strong>; aquí se sintetizan 3 arquetipos del CLD. El <strong>bucle modal extendido</strong> (Loops 1–3) comparte el tronco: Emisiones <strong>(+)</strong> → CO₂ <strong>(+)</strong> → Pérdidas <strong>(+)</strong> → <em>Loss Delay</em> <strong>(+)</strong> → PIB <strong>(−)</strong> → Demanda <strong>(+)</strong> → Oferta <strong>(+)</strong> → <em>[rama por modo]</em> → Consumo energético del modo <strong>(+)</strong> → Emisiones <strong>(+)</strong>. La rama cambia según el modo: taxi eléctrico, trolebús o metro (vía inversión fija y kilometraje). <em>Sterman (2000), Cap. 4:</em> estructura → comportamiento.</p>
+          </div>
+        </section>
+
+        <!-- 06 FORRESTER -->
+        <section class="slide" data-i="5" data-theme="b" data-trans="rise">
+          <div class="rail" data-s="b"></div>
+          <div class="inner compact dense-body slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag b">Clasificación</span>
+                </div>
+                <span class="rubric-tag">STOCKS · FLOWS · CONSTANTES</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Diagrama de Forrester</h2>
+                <p class="subhead">Variables de estado (Stocks), flujos (Flows), auxiliares y constantes — Table 1: 5 · 10 · 32 · <strong>19</strong>.</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-vars-split">
+              <div class="panel table-panel hover-card">
+                <table class="data table-vars" id="var-table">
+                  <thead>
+                    <tr><th>Variable</th><th>Tipo</th><th>Rol</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr data-type="stock"><td>Urban GDP (PIB urbano)</td><td class="type-stock">Stock</td><td>Acumulación económica</td></tr>
+                    <tr data-type="stock"><td>Urban Population</td><td class="type-stock">Stock</td><td>Demografía urbana</td></tr>
+                    <tr data-type="stock"><td>Urban Road Length</td><td class="type-stock">Stock</td><td>Infraestructura vial</td></tr>
+                    <tr data-type="stock"><td>Passenger Transport Carbon Emissions</td><td class="type-stock">Stock</td><td>Emisiones acumuladas CO₂</td></tr>
+                    <tr data-type="stock"><td>Rail Transit Mileage</td><td class="type-stock">Stock</td><td>Red de metro</td></tr>
+                    <tr data-type="flow"><td>GDP Increase / GDP Decrease</td><td class="type-flow">Flow</td><td>Tasas de cambio del PIB</td></tr>
+                    <tr data-type="flow"><td>Births / Deaths / Migration</td><td class="type-flow">Flow</td><td>Flujos demográficos</td></tr>
+                    <tr data-type="flow"><td>CO₂ Increase / CO₂ Reduction</td><td class="type-flow">Flow</td><td>Entrada y salida de carbono</td></tr>
+                    <tr data-type="flow"><td>Rail Transit Construction</td><td class="type-flow">Flow</td><td>Expansión de metro</td></tr>
+                    <tr data-type="flow"><td>Change in Urban Road Length</td><td class="type-flow">Flow</td><td>Expansión vial</td></tr>
+                    <tr data-type="aux"><td>Urban Passenger Transport Demand</td><td class="type-aux">Auxiliar</td><td>Driver de oferta modal</td></tr>
+                    <tr data-type="aux"><td>Energy Consumption Cost</td><td class="type-aux">Auxiliar</td><td>Costo energético agregado</td></tr>
+                    <tr data-type="aux"><td>Carbon Management Efficiency</td><td class="type-aux">Auxiliar</td><td>Eficiencia de mitigación</td></tr>
+                    <tr data-type="aux"><td>Environmental Pollution Loss</td><td class="type-aux">Auxiliar</td><td>Pérdida económica por contaminación</td></tr>
+                    <tr data-type="aux"><td>Loss Delay</td><td class="type-aux">Auxiliar</td><td>Retraso de impacto económico</td></tr>
+                    <tr data-type="const"><td>Birth / Death / Migration rates</td><td class="type-const">Constante</td><td>0.0016 · 0.0032 · 0.0001</td></tr>
+                    <tr data-type="const"><td>Fuel prices (diesel, gas, electricity)</td><td class="type-const">Constante</td><td>Mecanismo de costos</td></tr>
+                    <tr data-type="const"><td>Emission coefficients (NEV, gasoline, electric)</td><td class="type-const">Constante</td><td>Intensidad de carbono</td></tr>
+                    <tr data-type="const"><td>Standard coal conversion factors</td><td class="type-const">Constante</td><td>Homogenización energética</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <figure class="fig-wrap fig-standard" data-zoom>
+                <div class="fig-media"><img src="img/fig8.png" alt="Diagrama stock-flujo completo" loading="lazy" /></div>
+                <figcaption class="fig-cap">Fig. 8 · Diagrama Forrester integrado — rojo: población y economía · morado: consumo energético · azul: vías urbanas · naranja: operación del tráfico · verde: control de emisiones</figcaption>
+              </figure>
+            </div>
+            <p class="slide-footer footnote">Tabla <strong>representativa</strong> (no exhaustiva): el modelo completo tiene 66 variables en Table 1 de Liu &amp; Liu (2025). Se omiten filas por legibilidad en la exposición.</p>
+          </div>
+        </section>
+
+        <!-- 07 VERIFICACIÓN (V&V — V) -->
+        <section class="slide" data-i="6" data-theme="c" data-trans="curtain">
+          <div class="rail" data-s="c"></div>
+          <div class="inner compact slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag c">Verificación</span>
+                </div>
+                <span class="rubric-tag">V&V (I) · VERIFICACIÓN · STERMAN 2000</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Verificación del modelo</h2>
+                <p class="subhead"><strong>V</strong> del V&amp;V (Sterman, 2000): comprobar que el modelo está bien construido — estructura, unidades y estabilidad numérica — antes de contrastarlo con datos reales.</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-2w">
+              <div class="panel hover-card">
+                <h3>Pruebas de verificación (Liu &amp; Liu, 2025)</h3>
+                <ul class="clean" style="font-size:.94rem">
+                  <li><strong>Prueba de aplicabilidad:</strong> <em>Check Model</em> en Vensim → <em>"Model is OK"</em> (lógica de ecuaciones y bucles cerrados).</li>
+                  <li><strong>Consistencia dimensional:</strong> unidades homogéneas en todas las ecuaciones del modelo.</li>
+                  <li><strong>Prueba de límites:</strong> comportamiento coherente ante valores extremos de variables clave.</li>
+                  <li><strong>Prueba de paso de tiempo:</strong> Δt = 0.25, 0.5 y 1 — curvas de PIB urbano casi superpuestas (fig. 9).</li>
+                </ul>
+                <p class="footnote" style="margin-top:10px"><em>Verificación ≠ validación:</em> aquí se evalúa la corrección interna del modelo; la comparación con datos históricos corresponde a la <strong>validación</strong> (diap. 8–9).</p>
+              </div>
+              <figure class="fig-wrap wide" data-zoom>
+                <div class="fig-media"><img src="img/fig9.png" alt="Sensibilidad al time step" loading="lazy" /></div>
+                <figcaption class="fig-cap">Fig. 9 · Robustez ante variación del Time Step</figcaption>
+              </figure>
+            </div>
+          </div>
+        </section>
+
+        <!-- 08 VALIDACIÓN (V&V — V) -->
+        <section class="slide" data-i="7" data-theme="c" data-trans="spin">
+          <div class="rail" data-s="c"></div>
+          <div class="inner compact slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag c">Validación</span>
+                </div>
+                <span class="rubric-tag">V&V (II) · VALIDACIÓN · STERMAN 2000</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Validación del modelo</h2>
+                <p class="subhead"><strong>V</strong> del V&amp;V (Sterman, 2000): evaluar si el modelo reproduce comportamientos de referencia y responde de forma plausible ante variaciones en parámetros clave.</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-2w">
+              <div class="panel hover-card">
+                <h3>Pruebas de validación conductual</h3>
+                <ul class="clean" style="font-size:.94rem">
+                  <li><strong>Análisis de sensibilidad:</strong> variación del ratio de costo energético sobre PIB urbano — trayectorias coherentes bajo distinta presión energética (fig. 10).</li>
+                  <li><strong>Reproducción histórica:</strong> ajuste simulado vs. observado 2010–2024 en PIB urbano y volumen de metro — error &lt; 5 % (diap. 9).</li>
+                  <li><strong>Criterio Sterman:</strong> el modelo replica <strong>tendencias</strong> observadas (crecimiento del PIB), no solo puntos aislados.</li>
+                  <li><strong>Implicación:</strong> con parámetros y condiciones iniciales calibrados (diap. 4), la proyección 2025–2040 y los escenarios de política parten de un modelo con ajuste histórico aceptable.</li>
+                </ul>
+                <p class="footnote" style="margin-top:10px">Los autores aplican verificación estructural (diap. 7) y validación conductual/histórica bajo el marco formal de Sterman (2000).</p>
+              </div>
+              <figure class="fig-wrap wide" data-zoom>
+                <div class="fig-media"><img src="img/fig10.png" alt="Sensibilidad del PIB urbano" loading="lazy" /></div>
+                <figcaption class="fig-cap">Fig. 10 · Sensibilidad del PIB (ratio costo energético)</figcaption>
+              </figure>
+            </div>
+          </div>
+        </section>
+
+        <!-- 09 BACK-TESTING -->
+        <section class="slide slide-val-hist" data-i="8" data-theme="c" data-trans="push">
+          <div class="rail" data-s="c"></div>
+          <div class="inner compact slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag c">Validación histórica</span>
+                </div>
+                <span class="rubric-tag">BACK-TESTING · ERROR &lt; 5 %</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Ajuste histórico 2010–2024</h2>
+                <p class="subhead oneline">Reproducción de comportamiento histórico (Sterman, 2000) — simulado vs. observado, error &lt; 5 %.</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-2">
+              <div class="val-chart-panel panel hover-card">
+                <h3>PIB urbano (miles de millones yuan)</h3>
+                <figure class="chart-zoom-wrap" data-zoom data-zoom-id="gdp-main" tabindex="0" role="button" aria-label="Ampliar gráfica PIB real vs simulado">
+                  <svg class="val-chart" id="chart-gdp-main" viewBox="0 0 460 200" role="img" aria-hidden="true"></svg>
+                  <p class="chart-zoom-cap">Real vs. simulado · clic (izq. o der.) o <kbd>.</kbd> para ampliar</p>
+                </figure>
+                <figure class="chart-zoom-wrap" data-zoom data-zoom-id="gdp-err" tabindex="0" role="button" aria-label="Ampliar gráfica error PIB">
+                  <svg class="val-chart" id="chart-gdp-err" viewBox="0 0 460 110" role="img" aria-hidden="true"></svg>
+                  <p class="chart-zoom-cap">Error de ajuste (%) · Table 2 · clic (izq. o der.) o <kbd>.</kbd> avanza</p>
+                </figure>
+                <p class="chart-legend">
+                  <span class="lg-real">Serie real</span>
+                  <span class="lg-sim">Serie simulada</span>
+                  <span class="lg-err">Error %</span>
+                </p>
+                <p class="chart-src">Gráficas elaboradas a partir de <strong>Table 2</strong> (Liu &amp; Liu, 2025).</p>
+              </div>
+              <div class="val-chart-panel panel hover-card">
+                <h3>Volumen pasajeros metro (100M viajes)</h3>
+                <figure class="chart-zoom-wrap" data-zoom data-zoom-id="metro-main" tabindex="0" role="button" aria-label="Ampliar gráfica metro real vs simulado">
+                  <svg class="val-chart" id="chart-metro-main" viewBox="0 0 460 200" role="img" aria-hidden="true"></svg>
+                  <p class="chart-zoom-cap">Real vs. simulado · clic (izq. o der.) o <kbd>.</kbd> para ampliar</p>
+                </figure>
+                <figure class="chart-zoom-wrap" data-zoom data-zoom-id="metro-err" tabindex="0" role="button" aria-label="Ampliar gráfica error metro">
+                  <svg class="val-chart" id="chart-metro-err" viewBox="0 0 460 110" role="img" aria-hidden="true"></svg>
+                  <p class="chart-zoom-cap">Error de ajuste (%) · Table 3 · clic (izq. o der.) o <kbd>.</kbd> avanza</p>
+                </figure>
+                <p class="chart-legend">
+                  <span class="lg-real">Serie real</span>
+                  <span class="lg-sim">Serie simulada</span>
+                  <span class="lg-err">Error %</span>
+                </p>
+                <p class="chart-src">Gráficas elaboradas a partir de <strong>Table 3</strong> (Liu &amp; Liu, 2025).</p>
+              </div>
+            </div>
+            <p class="slide-footer footnote">Validación histórica (Tables 2–3): el modelo replica la <strong>tendencia de crecimiento</strong> del PIB urbano y la trayectoria del volumen de metro (incluida la caída 2020–2022), con error &lt; 5 % en todos los años — base para proyecciones 2025–2040.</p>
+          </div>
+        </section>
+
+        <!-- 10 RESULTADOS -->
+        <section class="slide" data-i="9" data-theme="d" data-trans="dissolve">
+          <div class="rail" data-s="d"></div>
+          <div class="inner compact slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag d">Comportamiento</span>
+                </div>
+                <span class="rubric-tag">STERMAN CAP. 4 · MODOS</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Resultados de la simulación</h2>
+                <p class="subhead brief">Comportamientos emergentes (<em>Sterman, 2000, Cap. 4</em>) — escenario base y políticas (figs. 11–15).</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-2">
+              <figure class="fig-wrap wide" data-zoom>
+                <div class="fig-media"><img src="img/fig11.png" alt="Emisiones por modo escenario base" loading="lazy" /></div>
+                <figcaption class="fig-cap">Fig. 11 · Escenario base: buses «1», metro «2», taxis «3»</figcaption>
+              </figure>
+              <figure class="fig-wrap wide" data-zoom>
+                <div class="fig-media"><img src="img/fig15.png" alt="Combinaciones duales de políticas" loading="lazy" /></div>
+                <figcaption class="fig-cap">Fig. 15 · Combinaciones duales; sup. izq. = emisiones totales agregadas</figcaption>
+              </figure>
+            </div>
+            <div class="slide-footer panel table-panel" style="padding:8px 10px">
+              <table class="data table-compact table-behaviors">
+                <thead>
+                  <tr>
+                    <th>Comportamiento</th>
+                    <th>Gráfica(s)</th>
+                    <th>Modo / variable</th>
+                    <th>Explicación (Liu &amp; Liu, 2025)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Crecimiento Sigmoideo</td>
+                    <td>Fig. 11 «2»; fig. 15 inf. der.; figs. 12–13–14</td>
+                    <td>Tránsito ferroviario</td>
+                    <td>Alza gradual hasta meseta: expansión de demanda, población y kilometraje ferroviario; punto de inflexión hacia operación baja en carbono.</td>
+                  </tr>
+                  <tr>
+                    <td>Goal-seeking</td>
+                    <td>Fig. 11 «1»; fig. 15 sup. der.; figs. 12–13–14</td>
+                    <td>Buses</td>
+                    <td>Declive sostenido tras ~2018: adopción de NEV, buses eléctricos, mejoras de eficiencia energética y gobernanza del carbono.</td>
+                  </tr>
+                  <tr>
+                    <td>Goal-seeking</td>
+                    <td>Fig. 15 sup. izq.; figs. 12–13–14</td>
+                    <td>Total pasajeros (todos los modos)</td>
+                    <td>Emisiones agregadas del transporte de pasajeros en descenso; refleja la suma de la transición estructural de todos los modos.</td>
+                  </tr>
+                  <tr>
+                    <td>Overshoot &amp; collapse</td>
+                    <td>Fig. 11 «3»; fig. 15 inf. izq.; figs. 12–13–14</td>
+                    <td>Taxis</td>
+                    <td>Caída abrupta 2018–2020 y estabilización baja: salida de taxis a combustión fósil del dominio inicial del sistema.</td>
+                  </tr>
+                  <tr>
+                    <td>Oscilaciones</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>Ninguna gráfica muestra ciclos endógenos sostenidos; solo tendencias estructurales (subidas, caídas o mesetas), no oscilaciones periódicas del modelo.</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="footnote" style="margin:6px 0 0;font-size:.74rem">Figs. 12–13–14: políticas individuales de transporte público, tecnología energética y comportamiento de viaje. Fig. 15: mismas dinámicas bajo combinaciones duales (Original / Esc. 1 / Esc. 2).</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 11 EFECTOS CONTRAINTUITIVOS -->
+        <section class="slide" data-i="10" data-theme="d" data-trans="wipe">
+          <div class="rail" data-s="d"></div>
+          <div class="inner compact dense-body slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag d">Políticas</span>
+                </div>
+                <span class="rubric-tag">PALANCAS · SINERGIA</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Efectos contraintuitivos y políticas</h2>
+                <p class="subhead">Tres categorías de escenarios (Liu &amp; Liu, 2025), respuesta no lineal del sistema y sinergia superior a intervenciones aisladas.</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-2">
+              <div class="col-stack">
+                <div class="panel hover-card" style="padding:10px 14px">
+                  <h3 style="font-size:.92rem;margin-bottom:6px">1 · Desarrollo del transporte público</h3>
+                  <p style="font-size:.82rem;line-height:1.4;color:var(--muted);margin:0">Expansión del kilometraje de metro urbano para desplazar viajes de menor eficiencia y reducir emisiones agregadas.</p>
+                </div>
+                <div class="panel hover-card" style="padding:10px 14px">
+                  <h3 style="font-size:.92rem;margin-bottom:6px">2 · Optimización tecnológica energética</h3>
+                  <p style="font-size:.82rem;line-height:1.4;color:var(--muted);margin:0">Mejora de la eficiencia energética de vehículos de nueva energía (NEV), reduciendo consumo unitario y CO₂ por viaje.</p>
+                </div>
+                <div class="panel hover-card" style="padding:10px 14px">
+                  <h3 style="font-size:.92rem;margin-bottom:6px">3 · Orientación del comportamiento de viaje</h3>
+                  <p style="font-size:.82rem;line-height:1.4;color:var(--muted);margin:0">Restricción del uso de autos privados y fomento de modos de menor carbono (bus, metro, taxi eficiente).</p>
+                </div>
+                <div class="panel hover-card">
+                  <h3 class="slide11-section-title">¿Por qué el sistema responde así?</h3>
+                  <ul class="clean" style="font-size:.88rem">
+                    <li><strong>Retrasos temporales:</strong> el daño ambiental no reduce el PIB de inmediato — la política parece ineficaz a corto plazo y efectiva después (<em>Sterman, 2000, Cap. 4</em>).</li>
+                    <li><strong>Sustitución modal:</strong> el taxi cae y el metro se estabiliza en alza — el sistema redistribuye viajes entre modos.</li>
+                    <li><strong>Sinergia dual:</strong> combinaciones superan políticas aisladas (~7–9 % cada una) por bucles acoplados.</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="panel table-panel hover-card">
+                <h3 class="slide11-section-title">Escenarios de política y reducción de emisiones</h3>
+                <table class="data table-compact table-policy">
+                  <thead>
+                    <tr>
+                      <th>Categoría</th>
+                      <th>Palanca</th>
+                      <th>Esc. 1</th>
+                      <th>Esc. 2</th>
+                      <th>↓ Esc. 1</th>
+                      <th>↓ Esc. 2</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Transporte público</td>
+                      <td>Kilometraje metro</td>
+                      <td>+5 %</td>
+                      <td>+10 %</td>
+                      <td>−7.23 %</td>
+                      <td>−9.18 %</td>
+                    </tr>
+                    <tr>
+                      <td>Tecnología energética</td>
+                      <td>Consumo unitario NEV</td>
+                      <td>−5 %</td>
+                      <td>−10 %</td>
+                      <td>−7.97 %</td>
+                      <td>−9.53 %</td>
+                    </tr>
+                    <tr>
+                      <td>Comportamiento de viaje</td>
+                      <td>Autos privados</td>
+                      <td>−5 %</td>
+                      <td>−10 %</td>
+                      <td>−8.13 %</td>
+                      <td>−9.88 %</td>
+                    </tr>
+                  </tbody>
+                  <thead>
+                    <tr>
+                      <th colspan="4">Combinación dual</th>
+                      <th colspan="2">↓ Emisiones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td colspan="4">Transporte público + Tecnología energética</td>
+                      <td colspan="2"><strong>11.32 %</strong></td>
+                    </tr>
+                    <tr>
+                      <td colspan="4">Transporte público + Comportamiento de viaje</td>
+                      <td colspan="2"><strong>10.58 %</strong></td>
+                    </tr>
+                    <tr>
+                      <td colspan="4">Tecnología energética + Comportamiento de viaje</td>
+                      <td colspan="2"><strong>8.94 %</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p class="footnote" style="margin-top:8px;font-size:.76rem">Intensidades de escenario: Tables 4-5–6 · Resultados de reducción (%): sección de escenarios de política y fig. 15 (las combinaciones duales no tienen tabla propia en el paper). Reducción respecto al escenario base.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 12 APRENDIZAJES · EQUIPO · REFERENCIAS -->
+        <section class="slide" data-i="11" data-theme="d" data-trans="fade">
+          <div class="rail" data-s="d"></div>
+          <div class="inner compact slide-shell">
+            <header class="slide-header">
+              <div class="topbar">
+                <div class="meta-left">
+                  <span class="tag d">Cierre</span>
+                </div>
+                <span class="rubric-tag">APRENDIZAJES · EQUIPO · IA</span>
+              </div>
+              <div class="slide-heading">
+                <h2 class="headline">Aprendizajes y cierre</h2>
+                <p class="subhead">Síntesis del trabajo, contribuciones del equipo, referencias APA 7 y declaración de uso de IA.</p>
+              </div>
+            </header>
+            <div class="slide-body body-grid cols-2">
+              <div class="panel hover-card">
+                <h3>Aprendizajes clave</h3>
+                <ul class="clean" style="font-size:.96rem">
+                  <li>La estructura de retroalimentación explica mejor el comportamiento que correlaciones estáticas.</li>
+                  <li>La validación Sterman (V&amp;V + back-testing) es indispensable antes de proyectar políticas.</li>
+                  <li>Los retrasos y la sustitución modal generan dinámicas contraintuitivas en escenarios de política.</li>
+                  <li>La sinergia multidimensional supera intervenciones aisladas para metas de carbono urbano.</li>
+                </ul>
+              </div>
+              <div class="col-stack">
+                <div class="panel table-panel hover-card">
+                  <h3>Contribuciones del equipo</h3>
+                  <table class="data table-compact table-team">
+                    <thead>
+                      <tr><th>Miembro</th><th>Rol</th><th>Actividades / contribuciones</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>Samuel Herrera</td><td>Datos y políticas</td><td>Conjunto de datos y efectos contraintuitivos</td></tr>
+                      <tr><td>Katherinne Olaya</td><td>Redacción y coordinación</td><td>Cita del artículo, descripción del problema, aprendizajes y contribuciones del equipo</td></tr>
+                      <tr><td>Fredy Garcia</td><td>Validación y resultados</td><td>Validación del modelo (Sterman) y resultados de simulación</td></tr>
+                      <tr><td>Ever Muñoz</td><td>Modelado DS</td><td>Modelo DS, diagrama de ciclos causales y diagramas de Forrester</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="panel hover-card" style="padding:12px 16px">
+                  <h3>Uso de inteligencia artificial</h3>
+                  <p style="font-size:.88rem;line-height:1.48;color:var(--muted);margin-top:6px">En la preparación de este entregable se utilizó <strong>Claude (Anthropic)</strong> para la estructuración de las diapositivas en código HTML/CSS, y <strong>Gemini (Google)</strong> para la redacción y validación de ideas. El equipo revisó, editó y validó íntegramente todo el contenido para garantizar su precisión, coherencia técnica e integridad académica, sin presentar información errónea ni material no verificado.</p>
+                </div>
+              </div>
+            </div>
+            <div class="slide-footer panel" style="padding:12px 16px;font-size:.82rem;line-height:1.45">
+              <p style="margin-bottom:6px"><strong>Referencias (APA 7):</strong></p>
+              <p style="color:var(--muted)">Liu, R., &amp; Liu, N. (2025). <em>Study on urban passenger transport carbon reduction pathways based on system dynamics</em>. <em>Scientific Reports</em>, <em>15</em>(1), Article 37471. https://doi.org/10.1038/s41598-025-21386-8</p>
+              <p style="color:var(--muted);margin-top:4px">Sterman, J. D. (2000). <em>Business dynamics: Systems thinking and modeling for a complex world</em>. Irwin/McGraw-Hill.</p>
+            </div>
+            <div class="hero-footer" style="margin-top:4px">
+              <span>Gracias · Preguntas</span>
+              <span>Modelos y Simulación · UNAL · 2026</span>
+            </div>
+          </div>
+        </section>
+
+      </div>
+      <nav id="dots" aria-label="Diapositivas"></nav>
+    </div>
+  </div>
+
+  <div id="lightbox" aria-hidden="true" role="dialog" aria-label="Imagen ampliada">
+    <button type="button" id="lb-close" title="Cerrar (Esc)">×</button>
+    <img id="lb-img" alt="" />
+    <div id="lb-svg-wrap" aria-hidden="true"></div>
+    <p id="lb-cap"></p>
+  </div>
+
+  <script>
+(function () {
+  "use strict";
+
+  var slides = [].slice.call(document.querySelectorAll(".slide"));
+  var n = slides.length;
+  var cur = 0;
+  var deckWrap = document.getElementById("deck-wrap");
+  var transitionFlash = document.getElementById("transition-flash");
+  var counterUi = document.getElementById("counter-ui");
+  var dotsNav = document.getElementById("dots");
+  var lightbox = document.getElementById("lightbox");
+  var lbImg = document.getElementById("lb-img");
+  var lbSvgWrap = document.getElementById("lb-svg-wrap");
+  var lbCap = document.getElementById("lb-cap");
+  var audioOn = true;
+  var audioCtx = null;
+  var lbOpen = false;
+  var lbCurrentZoomId = "";
+
+  slides.forEach(function (_, i) {
+    var b = document.createElement("button");
+    b.className = "dot" + (i === 0 ? " active" : "");
+    b.type = "button";
+    b.title = "Diapositiva " + (i + 1);
+    b.addEventListener("click", function () { go(i); });
+    dotsNav.appendChild(b);
+  });
+  var dots = [].slice.call(document.querySelectorAll(".dot"));
+
+  function pad(num) { return (num < 10 ? "0" : "") + num; }
+
+  function initAudio() {
+    if (!audioCtx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
+
+    /** Whoosh cinematográfico (ruido + tono + sub-grave) */
+  function playSlideTransition(forward) {
+    if (!audioOn || !audioCtx) return;
+    var t = audioCtx.currentTime;
+    var dur = 0.55;
+    var sr = audioCtx.sampleRate;
+    var len = Math.floor(sr * dur);
+    var buf = audioCtx.createBuffer(1, len, sr);
+    var ch = buf.getChannelData(0);
+    var i;
+    for (i = 0; i < len; i++) {
+      var env = Math.sin((i / len) * Math.PI);
+      ch[i] = (Math.random() * 2 - 1) * env * 0.35;
+    }
+    var noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    var bp = audioCtx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(forward ? 420 : 320, t);
+    bp.frequency.exponentialRampToValueAtTime(forward ? 1800 : 900, t + dur * 0.55);
+    bp.frequency.exponentialRampToValueAtTime(280, t + dur);
+    bp.Q.value = 0.7;
+    var nGain = audioCtx.createGain();
+    nGain.gain.setValueAtTime(0.0001, t);
+    nGain.gain.exponentialRampToValueAtTime(0.09, t + 0.04);
+    nGain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    noise.connect(bp);
+    bp.connect(nGain);
+    nGain.connect(audioCtx.destination);
+    noise.start(t);
+    noise.stop(t + dur);
+
+    var tone = audioCtx.createOscillator();
+    var tGain = audioCtx.createGain();
+    tone.type = "sine";
+    tone.frequency.setValueAtTime(forward ? 196 : 165, t);
+    tone.frequency.exponentialRampToValueAtTime(forward ? 392 : 220, t + dur * 0.4);
+    tGain.gain.setValueAtTime(0.0001, t);
+    tGain.gain.exponentialRampToValueAtTime(0.045, t + 0.03);
+    tGain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    tone.connect(tGain);
+    tGain.connect(audioCtx.destination);
+    tone.start(t);
+    tone.stop(t + dur);
+
+    var sub = audioCtx.createOscillator();
+    var sGain = audioCtx.createGain();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(forward ? 55 : 45, t);
+    sub.frequency.exponentialRampToValueAtTime(28, t + dur);
+    sGain.gain.setValueAtTime(0.0001, t);
+    sGain.gain.exponentialRampToValueAtTime(0.07, t + 0.05);
+    sGain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    sub.connect(sGain);
+    sGain.connect(audioCtx.destination);
+    sub.start(t);
+    sub.stop(t + dur);
+  }
+
+  function playUiClick() {
+    if (!audioOn || !audioCtx) return;
+    var t = audioCtx.currentTime;
+    var osc = audioCtx.createOscillator();
+    var g = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(520, t);
+    osc.frequency.exponentialRampToValueAtTime(880, t + 0.04);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.06, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    osc.connect(g);
+    g.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.08);
+  }
+
+  var themeFlash = {
+    a: "rgba(56,189,248,0.4)",
+    b: "rgba(167,139,250,0.42)",
+    c: "rgba(52,211,153,0.38)",
+    d: "rgba(251,146,60,0.4)",
+    hero: "rgba(56,189,248,0.35)"
+  };
+
+  function playTransitionFx(forward, themeKey) {
+    var color = themeFlash[themeKey] || themeFlash.b;
+    transitionFlash.style.background = forward
+      ? "radial-gradient(ellipse 90% 70% at 75% 50%, " + color + ", transparent 65%)"
+      : "radial-gradient(ellipse 90% 70% at 25% 50%, " + color + ", transparent 65%)";
+    transitionFlash.classList.add("on");
+    setTimeout(function () { transitionFlash.classList.remove("on"); }, 380);
+    deckWrap.classList.remove("sweep");
+    void deckWrap.offsetWidth;
+    deckWrap.classList.add("sweep");
+    setTimeout(function () { deckWrap.classList.remove("sweep"); }, 900);
+  }
+
+  var TX_CLASSES = ["t-enter", "t-exit", "t-glide", "t-zoom", "t-fade", "t-flip", "t-rise", "t-curtain", "t-spin", "t-push", "t-dissolve", "t-wipe", "rev"];
+
+  function clearTransClasses(el) {
+    TX_CLASSES.forEach(function (c) { el.classList.remove(c); });
+  }
+
+  function go(i) {
+    if (i < 0 || i >= n || i === cur || lbOpen) return;
+    var forward = i > cur;
+    var prev = cur;
+    var incoming = slides[i];
+    var outgoing = slides[prev];
+    var trans = incoming.getAttribute("data-trans") || "glide";
+    var themeKey = incoming.getAttribute("data-theme") || (incoming.classList.contains("hero") ? "hero" : "b");
+
+    initAudio();
+    playSlideTransition(forward);
+    playTransitionFx(forward, themeKey);
+
+    clearTransClasses(incoming);
+    clearTransClasses(outgoing);
+
+    incoming.classList.add("t-enter", "t-" + trans);
+    if (!forward) incoming.classList.add("rev");
+
+    outgoing.classList.remove("active");
+    outgoing.classList.add("t-exit", "t-" + trans);
+    if (!forward) outgoing.classList.add("rev");
+
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        incoming.classList.add("active");
+      });
+    });
+
+    cur = i;
+    figCycleIdx = 0;
+
+    setTimeout(function () {
+      clearTransClasses(outgoing);
+      clearTransClasses(incoming);
+      fitActiveSlide();
+    }, 900);
+
+    counterUi.textContent = pad(cur + 1) + " — " + pad(n);
+    dots.forEach(function (d, j) { d.classList.toggle("active", j === cur); });
+    scheduleFitActiveSlide();
+  }
+
+  var FIT_MIN = 0.62;
+  var fitSlideTimer = 0;
+
+  function fitActiveSlide() {
+    if (window.matchMedia && window.matchMedia("print").matches) return;
+    var slide = slides[cur];
+    if (!slide) return;
+    var inner = slide.querySelector(".inner");
+    if (!inner) return;
+
+    document.documentElement.style.setProperty("--deck-fit", "1");
+
+    requestAnimationFrame(function () {
+      var sh = inner.scrollHeight;
+      var ch = inner.clientHeight;
+      var sw = inner.scrollWidth;
+      var cw = inner.clientWidth;
+      var scaleH = ch > 0 && sh > ch + 2 ? ch / sh : 1;
+      var scaleW = cw > 0 && sw > cw + 2 ? cw / sw : 1;
+      var scale = Math.min(1, scaleH, scaleW);
+      if (scale < FIT_MIN) scale = FIT_MIN;
+      document.documentElement.style.setProperty("--deck-fit", scale.toFixed(4));
+    });
+  }
+
+  function scheduleFitActiveSlide() {
+    if (fitSlideTimer) clearTimeout(fitSlideTimer);
+    fitSlideTimer = setTimeout(function () {
+      fitSlideTimer = 0;
+      fitActiveSlide();
+    }, 60);
+  }
+
+  function openLightbox(src, alt, cap) {
+    initAudio();
+    playUiClick();
+    lbSvgWrap.innerHTML = "";
+    lbSvgWrap.style.display = "none";
+    lbImg.style.display = "block";
+    lbImg.src = src;
+    lbImg.alt = alt || "";
+    lbCap.textContent = cap || "";
+    lbCurrentZoomId = "";
+    lightbox.classList.add("open");
+    lightbox.setAttribute("aria-hidden", "false");
+    lbOpen = true;
+    document.body.style.overflow = "hidden";
+  }
+
+  function openLightboxSvg(cap, zoomId) {
+    initAudio();
+    playUiClick();
+    lbImg.style.display = "none";
+    lbImg.src = "";
+    lbSvgWrap.innerHTML = "";
+    var cfg = VAL_CHART_CFG[zoomId];
+    if (cfg) {
+      var ns = "http://www.w3.org/2000/svg";
+      var newSvg = document.createElementNS(ns, "svg");
+      newSvg.setAttribute("class", "val-chart lb-chart");
+      newSvg.setAttribute("role", "img");
+      newSvg.setAttribute("viewBox", "0 0 " + cfg.lbW + " " + cfg.lbH);
+      if (cfg.kind === "main") {
+        drawValMain(newSvg, cfg.data, {
+          width: cfg.lbW, height: cfg.lbH,
+          yLabel: cfg.yLabel, fmt: cfg.fmt, large: true,
+          reconcileSim: cfg.reconcileSim, yPad: cfg.yPad
+        });
+      } else {
+        drawValErr(newSvg, cfg.data, { width: cfg.lbW, height: cfg.lbH, large: true });
+      }
+      lbSvgWrap.appendChild(newSvg);
+    }
+    lbSvgWrap.style.display = cfg ? "block" : "none";
+    lbCap.textContent = cap || "";
+    lbCurrentZoomId = zoomId || "";
+    lightbox.classList.add("open");
+    lightbox.setAttribute("aria-hidden", "false");
+    lbOpen = true;
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeLightbox() {
+    lightbox.classList.remove("open");
+    lightbox.setAttribute("aria-hidden", "true");
+    lbOpen = false;
+    document.body.style.overflow = "";
+    lbImg.src = "";
+    lbImg.style.display = "block";
+    lbSvgWrap.innerHTML = "";
+    lbSvgWrap.style.display = "none";
+    lbCurrentZoomId = "";
+  }
+
+  function openFigure(fig) {
+    var zoomId = fig.getAttribute("data-zoom-id") || "";
+    if (fig.querySelector("svg.val-chart") && VAL_CHART_CFG[zoomId]) {
+      var capEl = fig.querySelector(".chart-zoom-cap");
+      openLightboxSvg(capEl ? capEl.textContent : "", zoomId);
+      return;
+    }
+    var img = fig.querySelector("img");
+    var capEl = fig.querySelector(".fig-cap");
+    if (img) openLightbox(img.src, img.alt, capEl ? capEl.textContent : "");
+  }
+
+  var figCycleIdx = 0;
+  var xBtnNextEnd = false;
+  var lastJumpTime = 0;
+
+  function getSlideFigures() {
+    return slides[cur].querySelectorAll("[data-zoom]");
+  }
+
+  function sameImgSrc(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    var na = a.split("/").pop();
+    var nb = b.split("/").pop();
+    return na === nb;
+  }
+
+  function figureZoomIndex(figs) {
+    if (!lbOpen) return -1;
+    if (lbCurrentZoomId) {
+      for (var i = 0; i < figs.length; i++) {
+        if (figs[i].getAttribute("data-zoom-id") === lbCurrentZoomId) return i;
+      }
+    }
+    if (lbImg.src) {
+      for (var j = 0; j < figs.length; j++) {
+        var img = figs[j].querySelector("img");
+        if (img && sameImgSrc(img.src, lbImg.src)) return j;
+      }
+    }
+    return -1;
+  }
+
+  /** Klip Xtreme: botón '.' (190) — ampliar gráficas; en la última, cerrar y reiniciar */
+  function zoomSlideFigure() {
+    var figs = getSlideFigures();
+    if (!figs.length) return;
+
+    if (!lbOpen) {
+      openFigure(figs[0]);
+      return;
+    }
+
+    var currentIdx = figureZoomIndex(figs);
+
+    if (currentIdx < 0) {
+      openFigure(figs[0]);
+      return;
+    }
+
+    if (currentIdx >= figs.length - 1) {
+      closeLightbox();
+      figCycleIdx = 0;
+      return;
+    }
+
+    openFigure(figs[currentIdx + 1]);
+  }
+
+  function toggleFullscreen() {
+    initAudio();
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+    scheduleFitActiveSlide();
+  }
+
+  function toggleAudio() {
+    initAudio();
+    audioOn = !audioOn;
+    document.getElementById("audio-toggle").classList.toggle("on", audioOn);
+    if (audioOn) playUiClick();
+  }
+
+  function isAltF4(e) {
+    var kc = e.keyCode || e.which;
+    return e.altKey && (kc === 115 || e.key === "F4" || e.code === "F4");
+  }
+
+  /** Klip Xtreme: botón X (Alt+F4) — alterna inicio / fin; bloquea cierre de ventana */
+  function jumpStartOrEnd() {
+    var now = Date.now();
+    if (now - lastJumpTime < 350) return;
+    lastJumpTime = now;
+    if (lbOpen) closeLightbox();
+    initAudio();
+    playUiClick();
+    if (xBtnNextEnd) go(n - 1);
+    else go(0);
+    xBtnNextEnd = !xBtnNextEnd;
+  }
+
+  document.querySelectorAll("[data-zoom]").forEach(function (fig) {
+    fig.setAttribute("tabindex", "0");
+    fig.setAttribute("role", "button");
+    fig.addEventListener("click", function (e) {
+      if (e.button !== 0) return;
+      openFigure(fig);
+    });
+    fig.addEventListener("contextmenu", function (e) {
+      e.preventDefault();
+      zoomSlideFigure();
+    });
+    fig.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openFigure(fig);
+      }
+    });
+  });
+
+  document.addEventListener("contextmenu", function (e) {
+    if (!getSlideFigures().length) return;
+    if (e.target.closest && e.target.closest("[data-zoom]")) return;
+    e.preventDefault();
+    zoomSlideFigure();
+  });
+
+  document.getElementById("lb-close").onclick = closeLightbox;
+  lightbox.addEventListener("click", function (e) {
+    if (e.target === lightbox || e.target === lbImg || e.target === lbSvgWrap || (e.target.closest && e.target.closest("#lb-svg-wrap"))) closeLightbox();
+  });
+
+  document.getElementById("btn-next").onclick = function () { go(cur + 1); };
+  document.getElementById("btn-prev").onclick = function () { go(cur - 1); };
+  document.getElementById("btn-fs").onclick = toggleFullscreen;
+
+  document.getElementById("audio-toggle").onclick = toggleAudio;
+
+  /* Bloquear teclas del presentador antes de que el navegador las capture */
+  document.addEventListener("keydown", function (e) {
+    var kc = e.keyCode || e.which;
+    if (kc === 116 || e.key === "F5") {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleFullscreen();
+      return;
+    }
+    if (isAltF4(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      jumpStartOrEnd();
+    }
+  }, true);
+
+  document.addEventListener("keydown", function (e) {
+    var kc = e.keyCode || e.which;
+
+    /* Klip Xtreme: botón derecho '.' (190) — ampliar gráficas */
+    if (kc === 190 || e.key === "." || e.code === "Period") {
+      e.preventDefault();
+      zoomSlideFigure();
+      return;
+    }
+
+    /* Klip Xtreme: S (83) — activar / desactivar sonido */
+    if (kc === 83 || e.key === "s" || e.key === "S") {
+      e.preventDefault();
+      toggleAudio();
+      return;
+    }
+
+    /* Klip Xtreme: botón izquierdo Escape (27) — cerrar gráfica o pantalla completa */
+    if (kc === 27 || e.key === "Escape") {
+      e.preventDefault();
+      if (lbOpen) closeLightbox();
+      else toggleFullscreen();
+      return;
+    }
+
+    if (lbOpen) return;
+
+    /* Klip Xtreme: flecha abajo (PageDown 34) = anterior; flecha arriba (PageUp 33) = siguiente */
+    if (kc === 34 || e.key === "PageDown" || e.key === "ArrowDown") {
+      e.preventDefault();
+      go(cur - 1);
+      return;
+    }
+    if (kc === 33 || e.key === "PageUp" || e.key === "ArrowUp") {
+      e.preventDefault();
+      go(cur + 1);
+      return;
+    }
+    if (["ArrowRight", " "].indexOf(e.key) >= 0) {
+      e.preventDefault();
+      go(cur + 1);
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      go(cur - 1);
+      return;
+    }
+    if (e.key === "Home") { e.preventDefault(); go(0); }
+    if (e.key === "End") { e.preventDefault(); go(n - 1); }
+    if (e.key === "f" || e.key === "F") toggleFullscreen();
+  });
+
+  document.querySelectorAll("a.gp-btn, .dot, #ui button").forEach(function (el) {
+    el.addEventListener("click", function () { initAudio(); playUiClick(); });
+  });
+
+  var tx = 0;
+  document.addEventListener("touchstart", function (e) { tx = e.changedTouches[0].screenX; }, { passive: true });
+  document.addEventListener("touchend", function (e) {
+    if (lbOpen) return;
+    var d = e.changedTouches[0].screenX - tx;
+    if (Math.abs(d) > 50) go(d < 0 ? cur + 1 : cur - 1);
+  }, { passive: true });
+
+  document.getElementById("var-table").addEventListener("click", function (e) {
+    var row = e.target.closest("tr[data-type]");
+    if (row) {
+      initAudio();
+      playUiClick();
+      row.style.background = "rgba(167,139,250,.25)";
+      setTimeout(function () { row.style.background = ""; }, 450);
+    }
+  });
+
+  /* Gráficas de validación histórica (Tables 2–3, Liu & Liu, 2025) */
+  var VALIDATION_GDP = [
+    { y: 2010, actual: 14114, sim: 14415, err: 2.13 },
+    { y: 2011, actual: 16252, sim: 16743, err: 3.02 },
+    { y: 2012, actual: 17879, sim: 18559, err: 3.80 },
+    { y: 2013, actual: 19801, sim: 20033, err: 1.17 },
+    { y: 2014, actual: 21831, sim: 22163, err: 1.52 },
+    { y: 2015, actual: 23015, sim: 23902, err: 3.86 },
+    { y: 2016, actual: 25669, sim: 25940, err: 1.06 },
+    { y: 2017, actual: 28015, sim: 28649, err: 2.26 },
+    { y: 2018, actual: 30320, sim: 30440, err: 0.40 },
+    { y: 2019, actual: 35371, sim: 35938, err: 1.60 },
+    { y: 2020, actual: 36103, sim: 36795, err: 1.92 },
+    { y: 2021, actual: 40270, sim: 41928, err: 4.12 },
+    { y: 2022, actual: 41611, sim: 43681, err: 4.97 },
+    { y: 2023, actual: 43760, sim: 44018, err: 0.59 },
+    { y: 2024, actual: 46175, sim: 47909, err: 3.76 }
+  ];
+  var VALIDATION_METRO = [
+    { y: 2010, actual: 29.68, sim: 32.19, err: 2.47 },
+    { y: 2011, actual: 32.50, sim: 33.78, err: 2.52 },
+    { y: 2012, actual: 33.95, sim: 34.79, err: 3.60 },
+    { y: 2013, actual: 34.95, sim: 35.65, err: 3.48 },
+    { y: 2014, actual: 35.64, sim: 36.48, err: 3.79 },
+    { y: 2015, actual: 36.41, sim: 36.59, err: 1.42 },
+    { y: 2016, actual: 36.59, sim: 37.72, err: 3.85 },
+    { y: 2017, actual: 37.78, sim: 38.41, err: 3.38 },
+    { y: 2018, actual: 38.48, sim: 39.79, err: 1.54 },
+    { y: 2019, actual: 39.62, sim: 22.96, err: 0.53 },
+    { y: 2020, actual: 22.94, sim: 30.40, err: 4.55 },
+    { y: 2021, actual: 30.68, sim: 23.11, err: 1.97 },
+    { y: 2022, actual: 22.63, sim: 34.91, err: 3.85 },
+    { y: 2023, actual: 34.54, sim: 37.20, err: 0.27 },
+    { y: 2024, actual: 37.20, sim: 32.19, err: 0.12 }
+  ];
+
+  function chartXAt(i, n, padL, plotW) {
+    return padL + (i / (n - 1)) * plotW;
+  }
+
+  function valSvgTarget(target) {
+    if (!target) return null;
+    return typeof target === "string" ? document.getElementById(target) : target;
+  }
+
+  function fmtErrPct(e) {
+    return e.toFixed(2).replace(".", ",");
+  }
+
+  /** Si el simulado de la tabla no cuadra con el error %, reconstruir para la serie (Table 3). */
+  function reconcileSimValue(d) {
+    var impliedUp = d.actual * (1 + d.err / 100);
+    var impliedDown = d.actual * (1 - d.err / 100);
+    var tablePct = Math.abs(d.sim - d.actual) / d.actual * 100;
+    if (tablePct <= d.err * 1.35 + 0.35) return d.sim;
+    return Math.abs(impliedUp - d.sim) < Math.abs(impliedDown - d.sim) ? impliedUp : impliedDown;
+  }
+
+  function drawValMain(target, data, opts) {
+    var svg = valSvgTarget(target);
+    if (!svg) return;
+    opts = opts || {};
+    var large = !!opts.large;
+    var W = opts.width || 460;
+    var H = opts.height || 200;
+    var sc = W / 460;
+    var padL = (large ? 70 : 62) * sc;
+    var padR = 14 * sc;
+    var top = 22 * sc;
+    var bot = H - (large ? 52 * sc : 48 * sc);
+    var plotW = W - padL - padR;
+    var plotH = bot - top;
+    var yLabel = opts.yLabel || "Valor";
+    var fmt = opts.fmt || function (n) { return Math.round(n).toLocaleString("es-CO"); };
+    var fsAxis = large ? 15 : 9.5;
+    var fsYear = large ? 14 : 9.5;
+    var fsTitle = large ? 17 : 11;
+    var strokeW = large ? 4 : 2.8;
+    var dotR = large ? 5 : 3.5;
+    var labelX = (large ? 18 : 15) * sc;
+    var tickX = padL - 6 * sc;
+
+    var series = data.map(function (d) {
+      return {
+        y: d.y,
+        actual: d.actual,
+        sim: opts.reconcileSim ? reconcileSimValue(d) : d.sim
+      };
+    });
+
+    var vals = [];
+    series.forEach(function (d) { vals.push(d.actual, d.sim); });
+    var minV = Math.min.apply(null, vals);
+    var maxV = Math.max.apply(null, vals);
+    var spanV = maxV - minV || 1;
+    var padY = spanV * (opts.yPad || 0.06);
+    var axisMin = minV - padY;
+    var axisMax = maxV + padY;
+    var axisSpan = axisMax - axisMin || 1;
+
+    function xAt(i) { return chartXAt(i, series.length, padL, plotW); }
+    function yVal(v) { return top + plotH - ((v - axisMin) / axisSpan) * plotH; }
+    function poly(key) {
+      return series.map(function (d, i) {
+        return xAt(i).toFixed(1) + "," + yVal(d[key]).toFixed(1);
+      }).join(" ");
+    }
+
+    var p = [];
+    p.push('<rect width="' + W + '" height="' + H + '" fill="transparent"/>');
+    for (var g = 0; g <= 4; g++) {
+      var gy = top + (g / 4) * plotH;
+      var gv = axisMax - (g / 4) * axisSpan;
+      p.push('<line x1="' + padL + '" y1="' + gy + '" x2="' + (W - padR) + '" y2="' + gy + '" stroke="rgba(255,255,255,.07)"/>');
+      p.push('<text x="' + tickX + '" y="' + (gy + 3.5 * sc) + '" text-anchor="end" fill="#d0d0dc" font-size="' + fsAxis + '" font-family="Instrument Sans,sans-serif">' + fmt(gv) + '</text>');
+    }
+    p.push('<line x1="' + padL + '" y1="' + top + '" x2="' + padL + '" y2="' + bot + '" stroke="rgba(255,255,255,.35)" stroke-width="' + (1.4 * sc) + '"/>');
+    p.push('<line x1="' + padL + '" y1="' + bot + '" x2="' + (W - padR) + '" y2="' + bot + '" stroke="rgba(255,255,255,.35)" stroke-width="' + (1.4 * sc) + '"/>');
+    p.push('<text x="' + labelX + '" y="' + (top + plotH / 2) + '" text-anchor="middle" fill="#d0d0dc" font-size="' + fsAxis + '" font-family="Instrument Sans,sans-serif" transform="rotate(-90 ' + labelX + ' ' + (top + plotH / 2) + ')">' + yLabel + '</text>');
+    p.push('<polyline fill="none" stroke="#38bdf8" stroke-width="' + strokeW + '" stroke-linejoin="round" points="' + poly("actual") + '"/>');
+    p.push('<polyline fill="none" stroke="#fb7185" stroke-width="' + strokeW + '" stroke-linejoin="round" points="' + poly("sim") + '"/>');
+    series.forEach(function (d, i) {
+      p.push('<circle cx="' + xAt(i) + '" cy="' + yVal(d.actual) + '" r="' + dotR + '" fill="#38bdf8"/>');
+      p.push('<circle cx="' + xAt(i) + '" cy="' + yVal(d.sim) + '" r="' + dotR + '" fill="#fb7185"/>');
+    });
+    series.forEach(function (d, i) {
+      if (i % 2 === 0 || i === series.length - 1) {
+        p.push('<text x="' + xAt(i) + '" y="' + (bot + 18 * sc) + '" text-anchor="middle" fill="#d0d0dc" font-size="' + fsYear + '" font-family="Instrument Sans,sans-serif">' + d.y + '</text>');
+      }
+    });
+    p.push('<text x="' + (padL + plotW / 2) + '" y="' + (H - 8 * sc) + '" text-anchor="middle" fill="#d0d0dc" font-size="' + fsTitle + '" font-weight="600" font-family="Instrument Sans,sans-serif">Año</text>');
+    svg.innerHTML = p.join("");
+  }
+
+  function drawValErr(target, data, opts) {
+    var svg = valSvgTarget(target);
+    if (!svg) return;
+    opts = opts || {};
+    var large = !!opts.large;
+    var W = opts.width || 460;
+    var H = opts.height || 110;
+    var sc = W / 460;
+    var padL = (large ? 78 : 70) * sc;
+    var padR = 14 * sc;
+    var top = 28 * sc;
+    var bot = H - (large ? 38 * sc : 22 * sc);
+    var barInset = 12 * sc;
+    var plotW = W - padL - padR;
+    var plotH = bot - top;
+    var maxErr = 5;
+    var fsTitle = large ? 18 : 11.5;
+    var fsAxis = large ? 15 : 9.5;
+    var fsYear = large ? 14 : 9.5;
+    var fsBar = large ? 12 : 8.5;
+    var barW = large ? 14 : 9;
+    var labelX = (large ? 18 : 15) * sc;
+    var tickX = padL - 7 * sc;
+
+    function xAt(i) {
+      var innerW = plotW - 2 * barInset;
+      return padL + barInset + (i / (data.length - 1)) * innerW;
+    }
+    function yErr(e) { return bot - (e / maxErr) * plotH; }
+
+    var p = [];
+    p.push('<rect width="' + W + '" height="' + H + '" fill="rgba(251,191,36,.05)" rx="' + (6 * sc) + '"/>');
+    p.push('<text x="' + (padL + plotW / 2) + '" y="' + (18 * sc) + '" text-anchor="middle" fill="#fbbf24" font-size="' + fsTitle + '" font-weight="700" font-family="Instrument Sans,sans-serif">Error de ajuste (%)</text>');
+    p.push('<line x1="' + padL + '" y1="' + top + '" x2="' + padL + '" y2="' + bot + '" stroke="rgba(251,191,36,.55)" stroke-width="' + (1.4 * sc) + '"/>');
+    p.push('<line x1="' + padL + '" y1="' + bot + '" x2="' + (W - padR) + '" y2="' + bot + '" stroke="rgba(251,191,36,.55)" stroke-width="' + (1.4 * sc) + '"/>');
+    p.push('<text x="' + labelX + '" y="' + (top + plotH / 2) + '" text-anchor="middle" fill="#fbbf24" font-size="' + fsAxis + '" font-family="Instrument Sans,sans-serif" transform="rotate(-90 ' + labelX + ' ' + (top + plotH / 2) + ')">Error (%)</text>');
+    p.push('<line x1="' + padL + '" y1="' + yErr(5) + '" x2="' + (W - padR) + '" y2="' + yErr(5) + '" stroke="rgba(251,191,36,.18)" stroke-dasharray="4 4"/>');
+    data.forEach(function (d, i) {
+      var ex = xAt(i);
+      var ey = yErr(d.err);
+      p.push('<rect x="' + (ex - barW / 2) + '" y="' + ey + '" width="' + barW + '" height="' + Math.max(0, bot - ey) + '" fill="#fbbf24" opacity=".92" rx="' + (2 * sc) + '"/>');
+      if (d.err >= 3.5) {
+        p.push('<text x="' + ex + '" y="' + (ey - 5 * sc) + '" text-anchor="middle" fill="#fde68a" font-size="' + fsBar + '" font-family="Instrument Sans,sans-serif">' + fmtErrPct(d.err) + '</text>');
+      }
+      if (i % 2 === 0 || i === data.length - 1) {
+        p.push('<text x="' + ex + '" y="' + (H - 6 * sc) + '" text-anchor="middle" fill="#d0d0dc" font-size="' + fsYear + '" font-family="Instrument Sans,sans-serif">' + d.y + '</text>');
+      }
+    });
+    for (var eg = 0; eg <= 4; eg++) {
+      var ev = (eg / 4) * maxErr;
+      var eyg = yErr(ev);
+      p.push('<rect x="' + (tickX - 22 * sc) + '" y="' + (eyg - 6 * sc) + '" width="' + (21 * sc) + '" height="' + (10 * sc) + '" fill="rgba(251,191,36,.12)" rx="2"/>');
+      p.push('<text x="' + tickX + '" y="' + (eyg + 3.5 * sc) + '" text-anchor="end" fill="#fde68a" font-size="' + fsAxis + '" font-weight="600" font-family="Instrument Sans,sans-serif">' + ev.toFixed(0) + '</text>');
+    }
+    svg.innerHTML = p.join("");
+  }
+
+  var GDP_FMT = function (n) { return Math.round(n).toLocaleString("es-CO"); };
+  var METRO_FMT = function (n) { return n.toFixed(2).replace(".", ","); };
+
+  var VAL_CHART_CFG = {
+    "gdp-main": {
+      kind: "main", data: VALIDATION_GDP, lbW: 1000, lbH: 440,
+      yLabel: "PIB (bn ¥)", fmt: GDP_FMT
+    },
+    "gdp-err": { kind: "err", data: VALIDATION_GDP, lbW: 1000, lbH: 260 },
+    "metro-main": {
+      kind: "main", data: VALIDATION_METRO, lbW: 1000, lbH: 440,
+      yLabel: "Vol. (100M viajes)", fmt: METRO_FMT,
+      reconcileSim: true, yPad: 0.08
+    },
+    "metro-err": { kind: "err", data: VALIDATION_METRO, lbW: 1000, lbH: 260 }
+  };
+
+  drawValMain("chart-gdp-main", VALIDATION_GDP, {
+    yLabel: "PIB (bn ¥)",
+    fmt: GDP_FMT
+  });
+  drawValErr("chart-gdp-err", VALIDATION_GDP);
+  drawValMain("chart-metro-main", VALIDATION_METRO, {
+    yLabel: "Vol. (100M viajes)",
+    fmt: METRO_FMT,
+    reconcileSim: true,
+    yPad: 0.08
+  });
+  drawValErr("chart-metro-err", VALIDATION_METRO);
+
+  document.body.addEventListener("click", initAudio, { once: true });
+  counterUi.textContent = pad(1) + " — " + pad(n);
+
+  window.addEventListener("resize", scheduleFitActiveSlide);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", scheduleFitActiveSlide);
+    window.visualViewport.addEventListener("scroll", scheduleFitActiveSlide);
+  }
+  document.addEventListener("fullscreenchange", scheduleFitActiveSlide);
+
+  if (typeof ResizeObserver !== "undefined") {
+    var slideFitObserver = new ResizeObserver(scheduleFitActiveSlide);
+    slides.forEach(function (slide) {
+      var inner = slide.querySelector(".inner");
+      if (inner) slideFitObserver.observe(inner);
+    });
+  }
+
+  scheduleFitActiveSlide();
+  setTimeout(fitActiveSlide, 400);
+})();
+  </script>
+</body>
+</html>
